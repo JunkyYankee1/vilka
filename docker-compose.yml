@@ -1,0 +1,72 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: kasashka_postgres
+    environment:
+      POSTGRES_USER: kasashka
+      POSTGRES_PASSWORD: kasashka_password
+      POSTGRES_DB: kasashka_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - kasashka_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: kasashka_redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - kasashka_net
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: kasashka_app
+    working_dir: /usr/src/app
+    command: sh -c "chmod +x node_modules/.bin/next && npm run dev"
+    volumes:
+      - ./:/usr/src/app
+      - /usr/src/app/node_modules
+    environment:
+      NODE_ENV: development
+      # строка подключения к Postgres из контейнера app
+      DATABASE_URL: postgresql://kasashka:kasashka_password@postgres:5432/kasashka_db
+      # строка подключения к Redis из контейнера app
+      REDIS_URL: redis://redis:6379
+      NEXT_PUBLIC_API_BASE_URL: http://localhost
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "3000:3000"
+    networks:
+      - kasashka_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: kasashka_nginx
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - kasashka_net
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  kasashka_net:
+    driver: bridge
