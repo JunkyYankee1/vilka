@@ -22,18 +22,24 @@ const AnonymousOfferCard = ({
       ? `-${Math.round(((oldPrice - price) / oldPrice) * 100)}%` // ✅ шаблонная строка
       : tag;
 
+  const hasImage = !!imageUrl;
+
   return (
-    <article className="flex flex-col overflow-hidden rounded-[24px] bg-white shadow-sm">
+    <article className="flex h-full flex-col overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
       {/* Верхняя часть: фото + плашка скидки */}
-      <div className="relative h-32 w-full rounded-t-[24px] bg-slate-100">
+      <div className="relative h-40 w-full rounded-t-[24px] bg-surface-soft">
         {/* ✅ Картинка блюда (если есть) */}
-        {imageUrl && (
+        {hasImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={imageUrl}
+            src={imageUrl ?? ""}
             alt={name}
             className="h-full w-full object-cover"
           />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-slate-100 text-[12px] font-medium text-slate-500">
+            пока ещё нет фото!
+          </div>
         )}
 
         {discount && (
@@ -44,8 +50,8 @@ const AnonymousOfferCard = ({
       </div>
 
       {/* Нижняя часть: название + цена */}
-      <div className="px-3 pb-3 pt-2">
-        <div className="line-clamp-2 text-[13px] font-semibold leading-snug text-slate-900">
+      <div className="flex flex-1 flex-col px-4 pb-4 pt-3">
+        <div className="line-clamp-2 text-[14px] font-semibold leading-snug text-slate-900">
           {name}
         </div>
         {subtitle && (
@@ -55,7 +61,7 @@ const AnonymousOfferCard = ({
         )}
 
         {/* ценовая капсула как у Самоката */}
-        <div className="mt-3 flex items-center justify-between rounded-full bg-emerald-50 px-3 py-1.5">
+        <div className="mt-auto flex items-center justify-between rounded-2xl border border-emerald-100 bg-emerald-50 px-3.5 py-2">
           <div className="flex flex-col">
             <div className="flex items-baseline gap-1">
               {oldPrice && (
@@ -63,14 +69,14 @@ const AnonymousOfferCard = ({
                   {oldPrice} ₽
                 </span>
               )}
-              <span className="text-base font-semibold text-slate-900">
+              <span className="text-lg font-semibold text-slate-900">
                 {price} ₽
               </span>
             </div>
           </div>
 
           {/* белый кружок с зелёным плюсом */}
-          <button className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-base font-semibold leading-none text-emerald-500 hover:bg-emerald-50">
+        <button className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-base font-semibold leading-none text-emerald-500 shadow-sm hover:bg-emerald-50">
             +
           </button>
         </div>

@@ -1402,6 +1402,11 @@ COPY public.menu_items (id, restaurant_id, category_id, name, description, price
 6	3	\N	Пицца веган 2	\N	700.00	RUB	t	t	\N	\N	\N	\N	\N	\N	{}	2025-12-02 07:01:48.411693+00	2025-12-02 07:01:48.411693+00	\N	0	\N	76	t	\N	80.00	\N	11111
 4	3	\N	Пицца	\N	600.00	RUB	t	t	https://avatars.mds.yandex.net/get-vertis-journal/3934100/52e2da20-4226-46c6-8bcb-bf48560f7288.jpeg/1600x1600	\N	\N	\N	\N	\N	{}	2025-12-01 14:24:33.88301+00	2025-12-01 14:24:33.88301+00	\N	0	\N	79	f	\N	50.00	\N	Пицца пепперони.\nСостав: Колбаса Салями, сыр, томатная паста, тесто\n800г.
 2	3	\N	булочка	\N	70.00	RUB	t	t	https://www.russianfood.com/dycontent/images_upl/634/big_633220.jpg	\N	\N	\N	\N	\N	{}	2025-11-28 08:56:46.112315+00	2025-11-28 08:56:46.112315+00	\N	0	\N	17	f	\N	50.00	\N	21
+10	3	\N	Тост с авокадо и микрозеленью	\N	320.00	RUB	t	t	\N	\N	\N	\N	\N	\N	{}	2025-12-11 09:00:00+00	2025-12-11 09:00:00+00	\N	0	\N	144	f	\N	\N	\N	Хрустящий тост с кремом из авокадо и микрозеленью.
+11	3	\N	Тост с лососем и крем-чиз	\N	450.00	RUB	t	t	https://images.unsplash.com/photo-1540189549336-e6e99c3679fe	\N	\N	\N	\N	\N	{}	2025-12-11 09:01:00+00	2025-12-11 09:01:00+00	\N	0	\N	145	f	\N	15.00	\N	Подкопчённый лосось, крем-чиз и огурец на зерновом хлебе.
+12	3	\N	Острый вок с креветкой	\N	520.00	RUB	t	t	https://images.unsplash.com/photo-1559057194-95f0d7b7d7c7	\N	\N	\N	\N	\N	{}	2025-12-11 09:02:00+00	2025-12-11 09:02:00+00	\N	0	\N	148	f	\N	12.00	\N	Пшеничная лапша, креветки, острый соус чили и овощи.
+13	3	\N	Терияки боул с курицей	\N	480.00	RUB	t	t	https://images.unsplash.com/photo-1529006557810-274b9b2fc783	\N	\N	\N	\N	\N	{}	2025-12-11 09:03:00+00	2025-12-11 09:03:00+00	\N	0	\N	151	f	\N	8.00	\N	Тёплый рис, курица терияки, эдамаме и кунжут.
+14	3	\N	Фисташковый мусс	\N	260.00	RUB	t	t	\N	\N	\N	\N	\N	\N	{}	2025-12-11 09:04:00+00	2025-12-11 09:04:00+00	\N	0	\N	154	f	\N	\N	\N	Воздушный мусс с фисташковой пастой и белым шоколадом.
 \.
 
 
@@ -1615,6 +1620,19 @@ COPY public.ref_dish_categories (id, parent_id, level, code, name, description, 
 139	136	3	combos.sets.party	Сеты для компании	\N	t	10	2025-11-28 07:23:04.542861+00	2025-11-28 07:23:04.542861+00
 140	136	3	combos.sets.family	Семейные наборы	\N	t	20	2025-11-28 07:23:04.542861+00	2025-11-28 07:23:04.542861+00
 141	137	3	combos.kids.menu	Детское меню	\N	t	10	2025-11-28 07:23:04.542861+00	2025-11-28 07:23:04.542861+00
+142	\N	1	brunch_tapas	Бранчи и тапас	\N	t	130	2025-12-11 09:00:00+00	2025-12-11 09:00:00+00
+143	142	2	brunch.tostadas	Тосты и тостады	\N	t	10	2025-12-11 09:00:00+00	2025-12-11 09:00:00+00
+144	143	3	brunch.tostadas.avocado	Тосты с авокадо	\N	t	10	2025-12-11 09:00:00+00	2025-12-11 09:00:00+00
+145	143	3	brunch.tostadas.salmon	Тосты с лососем	\N	t	20	2025-12-11 09:00:00+00	2025-12-11 09:00:00+00
+146	\N	1	asian_wok_fusion	Азиатский фьюжн	\N	t	140	2025-12-11 09:02:00+00	2025-12-11 09:02:00+00
+147	146	2	asian.wok.noodles	Воки и лапша	\N	t	10	2025-12-11 09:02:00+00	2025-12-11 09:02:00+00
+148	147	3	asian.wok.spicy	Острые воки	\N	t	10	2025-12-11 09:02:00+00	2025-12-11 09:02:00+00
+149	\N	1	bowls_protein	Протеиновые боулы	\N	t	150	2025-12-11 09:03:00+00	2025-12-11 09:03:00+00
+150	149	2	bowls.protein.chicken	Боулы с курицей	\N	t	10	2025-12-11 09:03:00+00	2025-12-11 09:03:00+00
+151	150	3	bowls.protein.teriyaki	Боул терияки	\N	t	10	2025-12-11 09:03:00+00	2025-12-11 09:03:00+00
+152	\N	1	desserts.modern	Современные десерты	\N	t	160	2025-12-11 09:04:00+00	2025-12-11 09:04:00+00
+153	152	2	desserts.modern.mousse	Муссовые десерты	\N	t	10	2025-12-11 09:04:00+00	2025-12-11 09:04:00+00
+154	153	3	desserts.modern.pistachio	Фисташковые муссы	\N	t	10	2025-12-11 09:04:00+00	2025-12-11 09:04:00+00
 \.
 
 
@@ -1759,7 +1777,7 @@ SELECT pg_catalog.setval('public.menu_item_options_id_seq', 1, false);
 -- Name: menu_items_id_seq; Type: SEQUENCE SET; Schema: public; Owner: kasashka
 --
 
-SELECT pg_catalog.setval('public.menu_items_id_seq', 9, true);
+SELECT pg_catalog.setval('public.menu_items_id_seq', 14, true);
 
 
 --
@@ -1822,7 +1840,7 @@ SELECT pg_catalog.setval('public.products_id_seq', 1, false);
 -- Name: ref_dish_categories_id_seq; Type: SEQUENCE SET; Schema: public; Owner: kasashka
 --
 
-SELECT pg_catalog.setval('public.ref_dish_categories_id_seq', 141, true);
+SELECT pg_catalog.setval('public.ref_dish_categories_id_seq', 154, true);
 
 
 --

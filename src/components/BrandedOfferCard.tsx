@@ -42,17 +42,23 @@ const BrandedOfferCard = ({
     onRemove?.();
   };
 
+  const hasImage = !!imageUrl;
+
   return (
-    <article className="flex flex-col overflow-hidden rounded-[24px] bg-white shadow-sm">
+    <article className="flex h-full flex-col overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
       {/* Верхняя часть: фото + плашка скидки */}
-      <div className="relative h-32 w-full rounded-t-[24px] bg-slate-100">
-        {imageUrl && (
+      <div className="relative h-40 w-full rounded-t-[24px] bg-surface-soft">
+        {hasImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={imageUrl}
+            src={imageUrl ?? ""}
             alt={itemName}
             className="h-full w-full object-cover"
           />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center bg-slate-100 text-[12px] font-medium text-slate-500">
+            пока ещё нет фото!
+          </div>
         )}
 
         {discount && (
@@ -63,13 +69,13 @@ const BrandedOfferCard = ({
       </div>
 
       {/* Нижняя часть: бренд, название, цена */}
-      <div className="px-3 pb-3 pt-2">
+      <div className="flex flex-1 flex-col px-4 pb-4 pt-3">
         {brand && (
-          <div className="line-clamp-1 text-[11px] font-medium text-slate-500">
+          <div className="line-clamp-1 text-[12px] font-medium text-slate-500">
             {brand}
           </div>
         )}
-        <div className="mt-0.5 line-clamp-2 text-[13px] font-semibold leading-snug text-slate-900">
+        <div className="mt-1 line-clamp-2 text-[14px] font-semibold leading-snug text-slate-900">
           {itemName}
         </div>
         {subtitle && (
@@ -79,7 +85,7 @@ const BrandedOfferCard = ({
         )}
 
         {/* ценовая капсула как была, только внутри теперь счётчик */}
-        <div className="mt-3 flex items-center justify-between rounded-full bg-emerald-50 px-3 py-1.5">
+        <div className="mt-auto flex items-center justify-between rounded-2xl border border-emerald-100 bg-emerald-50 px-3.5 py-2">
           <div className="flex flex-col">
             <div className="flex items-baseline gap-1">
               {oldPrice && (
@@ -87,7 +93,7 @@ const BrandedOfferCard = ({
                   {oldPrice} ₽
                 </span>
               )}
-              <span className="text-base font-semibold text-slate-900">
+              <span className="text-lg font-semibold text-slate-900">
                 {price} ₽
               </span>
             </div>
@@ -99,7 +105,7 @@ const BrandedOfferCard = ({
               <button
                 type="button"
                 onClick={handleRemove}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-base font-semibold leading-none text-slate-700 hover:bg-emerald-50"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-base font-semibold leading-none text-slate-700 shadow-sm hover:bg-emerald-50"
               >
                 –
               </button>
@@ -109,7 +115,7 @@ const BrandedOfferCard = ({
               <button
                 type="button"
                 onClick={handleAdd}
-                className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-base font-semibold leading-none text-emerald-500 hover:bg-emerald-50"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-base font-semibold leading-none text-emerald-500 shadow-sm hover:bg-emerald-50"
               >
                 +
               </button>
@@ -118,7 +124,7 @@ const BrandedOfferCard = ({
             <button
               type="button"
               onClick={handleAdd}
-              className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-base font-semibold leading-none text-emerald-500 hover:bg-emerald-50"
+              className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-base font-semibold leading-none text-emerald-500 shadow-sm hover:bg-emerald-50"
             >
               +
             </button>
