@@ -15,6 +15,7 @@ import AuthModal from "@/components/AuthModal";
 import AddressModal from "@/components/AddressModal";
 import AnonymousOfferCard from "@/components/AnonymousOfferCard";
 import BrandedOfferCard from "@/components/BrandedOfferCard";
+import { Heart } from "lucide-react";
 import { CartProvider, useCart } from "@/modules/cart/cartContext";
 import { buildCatalogIndexes } from "@/modules/catalog/indexes";
 import { ensureValidSelection, type Selection } from "@/modules/catalog/selection";
@@ -69,6 +70,12 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
   const { quantities, entries, totals, add, remove } = useCart();
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
+  const [deliverySlot, setDeliverySlot] = useState<string>("asap");
+  const [lineNotes, setLineNotes] = useState<
+    Record<string, { comment: string; allowReplacement: boolean }>
+  >({});
+  const [lineFavorites, setLineFavorites] = useState<Record<string, boolean>>({});
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAddressOpen, setIsAddressOpen] = useState(false);
   const [currentAddressLabel, setCurrentAddressLabel] =
@@ -195,6 +202,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
 
   const cartButtonLabel =
     totals.totalPrice > 0 ? `${totals.totalPrice} ₽` : "0 ₽";
+  const cartCountLabel = totals.totalCount > 0 ? `${totals.totalCount}` : "0";
 
   const currentCategory = categories.find((c) => c.id === activeCategoryId);
   const currentSubcategory = subcategories.find(
@@ -259,10 +267,78 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                   <span>Войти</span>
                 </button>
 
-                <button className="inline-flex items-center gap-2 rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-brand/30 hover:bg-brand-dark">
-                  <ShoppingBag className="h-4 w-4" />
-                  <span>Корзина • {cartButtonLabel}</span>
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsMiniCartOpen((v) => !v)}
+                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-300"
+                  >
+                    <ShoppingBag className="h-4 w-4" />
+                    <span>
+                      {cartCountLabel} • {cartButtonLabel}
+                    </span>
+                  </button>
+                  {isMiniCartOpen && (
+                    <div className="absolute right-0 z-40 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
+                      <div className="flex items-center justify-between text-sm font-semibold text-slate-900">
+                        <span>Корзина</span>
+                        <button
+                          type="button"
+                          className="text-xs text-slate-500 underline"
+                          onClick={() => setIsMiniCartOpen(false)}
+                        >
+                          Закрыть
+                        </button>
+                      </div>
+                      <div className="mt-2 max-h-60 space-y-2 overflow-auto">
+                        {entries.length === 0 ? (
+                          <div className="text-xs text-slate-500">
+                            В корзине пока пусто
+                          </div>
+                        ) : (
+                          entries.map(({ offer, quantity }) => (
+                            <div
+                              key={offer.id}
+                              className="flex items-center justify-between rounded-xl bg-surface-soft px-2 py-2"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <div className="line-clamp-1 text-sm font-semibold text-slate-900">
+                                  {offer.menuItemName}
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                  {offer.price} ₽ × {quantity}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => remove(offer.id)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-100"
+                                >
+                                  –
+                                </button>
+                                <span className="w-6 text-center text-sm font-semibold text-slate-900">
+                                  {quantity}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => add(offer.id)}
+                                  className="flex h-7 w-7 items-center justify-center rounded-full bg-white text-sm font-semibold text-emerald-600 shadow-sm hover:bg-slate-100"
+                                >
+                                  +
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                      <div className="mt-3 flex items-center justify-between text-sm font-semibold text-slate-900">
+                        <span>Итого</span>
+                        <span>{cartButtonLabel}</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -593,8 +669,25 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                 Доставка 15 минут
               </h2>
 
+              <div className="mt-2">
+                <label className="text-xs font-semibold text-slate-700">
+                  Время доставки
+                </label>
+                <select
+                  value={deliverySlot}
+                  onChange={(e) => setDeliverySlot(e.target.value)}
+                  className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none hover:border-slate-300 focus:border-brand"
+                >
+                  <option value="asap">Как можно скорее</option>
+                  <option value="by-1930">К 19:30</option>
+                  <option value="20-2030">С 20:00 до 20:30</option>
+                  <option value="custom">Другое (указать при оформлении)</option>
+                </select>
+                {/* TODO: persist deliverySlot to cart model when backend is ready */}
+              </div>
+
               {totals.totalCount === 0 ? (
-                <div className="mt-2 text-xs text-slate-600">
+                <div className="mt-3 text-xs text-slate-600">
                   В вашей корзине пока пусто. Добавляйте блюда с карточек
                   справа, чтобы увидеть итог по заказу.
                 </div>
@@ -605,69 +698,149 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                       const base = baseItems.find(
                         (i) => i.id === offer.baseItemId
                       );
+                      const noteState = lineNotes[offer.id] ?? {
+                        comment: "",
+                        allowReplacement: true,
+                      };
 
                       return (
                         <div
                           key={offer.id}
-                          className="flex items-center gap-3 rounded-2xl"
+                          className="flex flex-col gap-2 rounded-2xl border border-slate-100 p-3"
                         >
-                          <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-surface-soft">
-                            {offer.imageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                src={offer.imageUrl}
-                                alt={offer.menuItemName}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <span className="px-2 text-center text-[11px] font-medium text-slate-500">
-                                пока ещё нет фото!
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex min-w-0 flex-1 flex-col">
-                            <div className="line-clamp-2 text-sm font-semibold text-slate-900">
-                              {offer.menuItemName}
-                            </div>
-                            {base?.description && (
-                              <div className="mt-0.5 text-[11px] text-slate-500">
-                                {base.description}
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="flex flex-col items-end gap-1">
-                            <div className="flex items-center gap-3 rounded-full bg-surface-soft px-3 py-1.5">
-                              <button
-                                type="button"
-                                onClick={() => remove(offer.id)}
-                                className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-sm text-slate-700 hover:bg-slate-100"
-                              >
-                                —
-                              </button>
-                              <span className="w-4 text-center text-sm font-medium text-slate-900">
-                                {quantity}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => add(offer.id)}
-                                className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-sm text-slate-700 hover:bg-slate-100"
-                              >
-                                +
-                              </button>
-                            </div>
-
-                            <div className="flex items-center gap-2">
-                              {lineOldPrice && (
-                                <span className="text-xs text-slate-400 line-through">
-                                  {lineOldPrice} ₽
+                          <div className="flex items-start gap-3">
+                            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-surface-soft">
+                              {offer.imageUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  src={offer.imageUrl}
+                                  alt={offer.menuItemName}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <span className="px-2 text-center text-[11px] font-medium text-slate-500">
+                                  пока ещё нет фото!
                                 </span>
                               )}
-                              <span className="text-sm font-semibold text-slate-900">
-                                {lineTotal} ₽
-                              </span>
                             </div>
+
+                            <div className="flex min-w-0 flex-1 flex-col">
+                              <div className="line-clamp-2 text-sm font-semibold text-slate-900">
+                                {offer.menuItemName}
+                              </div>
+                              {base?.description && (
+                                <div className="mt-0.5 text-[11px] text-slate-500">
+                                  {base.description}
+                                </div>
+                              )}
+                              <button
+                                type="button"
+                                className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300"
+                                onClick={async () => {
+                                  const next = !lineFavorites[offer.id];
+                                  setLineFavorites((prev) => ({
+                                    ...prev,
+                                    [offer.id]: next,
+                                  }));
+                                  try {
+                                    // TODO: заменить на реальный userId из сессии
+                                    await fetch("/api/favorites/toggle", {
+                                      method: "POST",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({
+                                        userId: 1,
+                                        menuItemId: Number(offer.baseItemId),
+                                        favorite: next,
+                                      }),
+                                    });
+                                  } catch (e) {
+                                    console.error("favorite toggle failed", e);
+                                  }
+                                }}
+                              >
+                                <Heart
+                                  className={[
+                                    "h-3.5 w-3.5",
+                                    lineFavorites[offer.id]
+                                      ? "fill-red-500 stroke-red-500"
+                                      : "stroke-slate-500",
+                                  ].join(" ")}
+                                />
+                                <span>
+                                  {lineFavorites[offer.id]
+                                    ? "В избранном"
+                                    : "В избранное"}
+                                </span>
+                              </button>
+                              <div className="mt-2 flex items-center gap-3 rounded-full bg-surface-soft px-3 py-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => remove(offer.id)}
+                                  className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-sm text-slate-700 hover:bg-slate-100"
+                                >
+                                  —
+                                </button>
+                                <span className="w-4 text-center text-sm font-medium text-slate-900">
+                                  {quantity}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => add(offer.id)}
+                                  className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-sm text-slate-700 hover:bg-slate-100"
+                                >
+                                  +
+                                </button>
+                                <div className="flex items-center gap-2">
+                                  {lineOldPrice && (
+                                    <span className="text-xs text-slate-400 line-through">
+                                      {lineOldPrice} ₽
+                                    </span>
+                                  )}
+                                  <span className="text-sm font-semibold text-slate-900">
+                                    {lineTotal} ₽
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col gap-2 rounded-2xl bg-surface-soft px-3 py-2">
+                            <label className="text-[11px] font-semibold text-slate-700">
+                              Комментарий для кухни
+                            </label>
+                            <textarea
+                              value={noteState.comment}
+                              onChange={(e) =>
+                                setLineNotes((prev) => ({
+                                  ...prev,
+                                  [offer.id]: {
+                                    ...noteState,
+                                    comment: e.target.value,
+                                  },
+                                }))
+                              }
+                              rows={2}
+                              className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900 outline-none hover:border-slate-300 focus:border-brand"
+                              placeholder="Без лука, соус отдельно..."
+                            />
+                            <label className="inline-flex items-center gap-2 text-[12px] text-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={noteState.allowReplacement}
+                                onChange={(e) =>
+                                  setLineNotes((prev) => ({
+                                    ...prev,
+                                    [offer.id]: {
+                                      ...noteState,
+                                      allowReplacement: e.target.checked,
+                                    },
+                                  }))
+                                }
+                                className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
+                              />
+                              Если нет в наличии — разрешить замену
+                            </label>
+                            {/* TODO: persist comment + replacement policy to backend cart lines */}
                           </div>
                         </div>
                       );
@@ -689,6 +862,81 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
               )}
             </div>
 
+            {totals.totalCount > 0 && (
+              <div className="rounded-3xl bg-white/90 p-3 shadow-vilka-soft">
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="save-cart-name"
+                      type="text"
+                      placeholder="Например: Обед в офис"
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                      onChange={() => {}}
+                    />
+                    <button
+                      type="button"
+                      className="rounded-2xl bg-brand px-3 py-2 text-sm font-semibold text-white hover:bg-brand-dark"
+                      onClick={async () => {
+                        // TODO: связать с реальным cartId / userId
+                        const nameInput = document.getElementById(
+                          "save-cart-name"
+                        ) as HTMLInputElement | null;
+                        const name = nameInput?.value?.trim();
+                        if (!name) return;
+                        try {
+                          await fetch("/api/cart/save", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              cartId: 1,
+                              userId: 1,
+                              name,
+                            }),
+                          });
+                        } catch (e) {
+                          console.error("save cart failed", e);
+                        }
+                      }}
+                    >
+                      Сохранить сет
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      id="apply-saved-id"
+                      type="number"
+                      placeholder="ID сохранённого сета"
+                      className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                    />
+                    <button
+                      type="button"
+                      className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 hover:border-slate-300"
+                      onClick={async () => {
+                        const input = document.getElementById(
+                          "apply-saved-id"
+                        ) as HTMLInputElement | null;
+                        const id = input?.value;
+                        if (!id) return;
+                        try {
+                          await fetch("/api/cart/apply-saved", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                              savedCartId: Number(id),
+                            }),
+                          });
+                        } catch (e) {
+                          console.error("apply saved failed", e);
+                        }
+                      }}
+                    >
+                      Повторить сет
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="rounded-3xl bg-surface-soft p-3 text-xs text-slate-600 shadow-vilka-soft">
               <p className="font-semibold text-slate-800">
                 Вилка пока не везде
@@ -700,6 +948,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
             </div>
           </div>
         </aside>
+        </div>
       </section>
 
       <footer className="border-t border-slate-200/70 bg-white/80">
