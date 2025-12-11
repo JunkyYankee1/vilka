@@ -2,12 +2,12 @@ FROM node:20-alpine
 
 WORKDIR /usr/src/app
 
-# сначала только зависимости
-COPY package*.json ./
-RUN npm install && \
-    chmod -R +x node_modules/.bin/
+# зависимости отдельно для кеша
+COPY package.json package-lock.json ./
+# npm ci требует синхронизации lock; используем install, чтобы не падать при локальных dev-добавлениях
+RUN npm install --no-audit --no-fund
 
-# затем весь код
+# остальной код
 COPY . .
 
 EXPOSE 3000
