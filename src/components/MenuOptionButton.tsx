@@ -11,6 +11,7 @@ type MenuOptionButtonProps = {
   className?: string;
   type?: "button" | "submit" | "reset";
   "aria-label"?: string;
+  key?: string | number; // React special prop, not passed to component
 };
 
 /**

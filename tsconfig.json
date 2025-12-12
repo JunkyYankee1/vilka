@@ -10,6 +10,7 @@
     "module": "esnext",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
+    "typeRoots": ["./node_modules/@types"],
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
@@ -24,6 +25,8 @@
   },
   "include": [
     "next-env.d.ts",
+    "global.d.ts",
+    "src/types/**/*.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",

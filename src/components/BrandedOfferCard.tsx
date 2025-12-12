@@ -13,6 +13,7 @@ type BrandedOfferCardProps = {
   quantity?: number;
   onAdd?: () => void;
   onRemove?: () => void;
+  key?: string | number; // React special prop, not passed to component
 };
 
 const BrandedOfferCard = ({

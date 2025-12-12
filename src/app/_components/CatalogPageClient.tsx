@@ -258,7 +258,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                     type="text"
                     placeholder="Найти ресторан или блюдо..."
                     value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
                     className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
                   />
                 </div>
@@ -390,7 +390,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                   type="text"
                   placeholder="Найти ресторан или блюдо..."
                   value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
                   className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
                 />
               </div>
@@ -403,7 +403,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
         <div className="grid grid-cols-1 items-start gap-6 md:grid-cols-[64px_minmax(0,1fr)_320px] lg:grid-cols-[200px_minmax(0,1fr)_320px] xl:grid-cols-[240px_minmax(0,1fr)_320px]">
           {/* #region agent log */}
           <aside 
-            ref={(el) => {
+            ref={(el: HTMLElement | null) => {
               if (el) {
                 const width = window.getComputedStyle(el).width;
                 const display = window.getComputedStyle(el).display;
@@ -434,7 +434,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                       type="button"
                       onClick={() => handleCategoryClick(cat.id)}
                       title={cat.name}
-                      onMouseEnter={(e) => {
+                      onMouseEnter={(e: { currentTarget: HTMLElement }) => {
                         // #region agent log
                         const el = e.currentTarget;
                         const tooltipEl = window.getComputedStyle(el, '::after');
@@ -453,7 +453,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                       ].join(" ")}
                     >
                       <span 
-                        ref={(el) => {
+                        ref={(el: HTMLElement | null) => {
                           // #region agent log
                           if (el) {
                             const justifyContent = window.getComputedStyle(el).justifyContent;
@@ -462,12 +462,12 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                           }
                           // #endregion
                         }}
-                        className="flex items-center gap-2 lg:gap-3">
+                        className="flex min-w-0 flex-1 items-center gap-2 lg:gap-3">
                         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface-soft text-lg md:h-10 md:w-10">
                           <CategoryEmoji code={cat.id} />
                         </span>
                         <span 
-                          ref={(el) => {
+                          ref={(el: HTMLElement | null) => {
                             // #region agent log
                             if (el) {
                               const display = window.getComputedStyle(el).display;
@@ -479,12 +479,12 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                             }
                             // #endregion
                           }}
-                          className="hidden flex-col lg:flex">
-                          <span className="text-sm leading-tight truncate max-w-[140px] xl:max-w-[180px]">
+                          className="hidden min-w-0 flex-col lg:flex">
+                          <span className="text-sm leading-tight truncate">
                             {cat.name}
                           </span>
                           {cat.isPromo && (
-                            <span className="mt-0.5 text-[10px] text-slate-500 truncate max-w-[140px] xl:max-w-[180px]">
+                            <span className="mt-0.5 text-[10px] text-slate-500 truncate">
                               Акции и спецпредложения
                             </span>
                           )}
@@ -515,13 +515,13 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                                 }
                                 title={sub.name}
                                 className={[
-                                  "flex w-full items-center justify-between rounded-2xl px-3 py-1.5 text-left text-xs transition",
+                                  "flex w-full min-w-0 items-center justify-between rounded-2xl px-3 py-1.5 text-left text-xs transition",
                                   isSubActive
                                     ? "bg-surface-soft text-slate-900 font-medium"
                                     : "bg-transparent text-slate-700 hover:bg-surface-soft",
                                 ].join(" ")}
                               >
-                                <span className="truncate max-w-[140px] xl:max-w-[180px]">
+                                <span className="truncate">
                                   {sub.name}
                                 </span>
                               </button>
@@ -540,13 +540,13 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                                         }
                                         title={item.name}
                                         className={[
-                                          "w-full rounded-2xl px-2 py-1 text-left text-[11px] transition",
+                                          "w-full min-w-0 rounded-2xl px-2 py-1 text-left text-[11px] transition",
                                           isItemActive
                                             ? "text-slate-400"
                                             : "text-slate-700 hover:text-slate-900",
                                         ].join(" ")}
                                       >
-                                        <span className="truncate block max-w-[140px] xl:max-w-[180px]">
+                                        <span className="truncate block">
                                           {item.name}
                                         </span>
                                       </button>
@@ -735,7 +735,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                 </label>
                 <select
                   value={deliverySlot}
-                  onChange={(e) => setDeliverySlot(e.target.value)}
+                  onChange={(e: { target: { value: string } }) => setDeliverySlot(e.target.value)}
                   className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none hover:border-slate-300 focus:border-brand"
                 >
                   <option value="asap">Как можно скорее</option>
@@ -859,7 +859,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                             </label>
                             <textarea
                               value={noteState.comment}
-                              onChange={(e) =>
+                              onChange={(e: { target: { value: string } }) =>
                                 setLineNotes((prev) => ({
                                   ...prev,
                                   [offer.id]: {
@@ -876,7 +876,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
                               <input
                                 type="checkbox"
                                 checked={noteState.allowReplacement}
-                                onChange={(e) =>
+                                onChange={(e: { target: { checked: boolean } }) =>
                                   setLineNotes((prev) => ({
                                     ...prev,
                                     [offer.id]: {
@@ -1027,7 +1027,7 @@ function CatalogUI({ catalog, indexes }: CatalogPageClientProps & { indexes: Cat
       <AddressModal
         isOpen={isAddressOpen}
         onClose={() => setIsAddressOpen(false)}
-        onSelectAddress={(label) => setCurrentAddressLabel(label)}
+        onSelectAddress={(label: string) => setCurrentAddressLabel(label)}
       />
     </main>
   );
