@@ -15,7 +15,7 @@ type AuthModalProps = {
 };
 
 const MAX_PHONE_DIGITS = 10; // цифр после +7
-const VALID_CODE = "1234";   // заглушка: правильный код (заменишь на свой)
+const VALID_CODES = ["0000", "1111"]; // технические коды для авторизации
 
 const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [step, setStep] = useState<"phone" | "code">("phone");
@@ -111,13 +111,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     // если все 4 позиции заполнены — проверяем код
     const full = next.join("");
+    console.log("[AuthModal] Code input:", full, "length:", full.length, "code.length:", code.length);
     if (full.length === code.length) {
-      if (full === VALID_CODE) {
-        // успех — автоматическая "авторизация"
-        onClose();
-      } else {
-        setCodeError(true);
-      }
+      console.log("[AuthModal] Submitting code:", full);
+      handleCodeSubmit(full);
     }
   };
 
@@ -139,6 +136,43 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     const m = Math.floor(t / 60);
     const s = t % 60;
     return `${m}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const handleCodeSubmit = async (codeValue: string) => {
+    const trimmedCode = codeValue.trim();
+    
+    if (!VALID_CODES.includes(trimmedCode)) {
+      setCodeError(true);
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: trimmedCode }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Auth API error:", res.status, errorData);
+        setCodeError(true);
+        return;
+      }
+
+      const data = await res.json();
+      console.log("Auth success:", data);
+
+      // Успешная авторизация
+      onClose();
+      // Перезагружаем страницу для обновления состояния
+      if (typeof window !== "undefined") {
+        window.location.reload();
+      }
+    } catch (e) {
+      console.error("Auth error:", e);
+      setCodeError(true);
+    }
   };
 
   /* ========== JSX ========== */

@@ -26,7 +26,6 @@ export type CanonicalCartLine = {
 };
 
 export type CanonicalCart = {
-  id: number;
   cartToken: string;
   deliverySlot: string | null;
   items: CanonicalCartLine[];
@@ -45,128 +44,130 @@ export type CartChange = {
 
 const MIN_ORDER_SUM = 0; // TODO: load from restaurant-specific settings
 const CACHE_TTL_SECONDS = 60 * 10; // 10 minutes
-const cacheKey = (cartToken: string) => `cart:${cartToken}`;
+const cacheKey = (cartToken: string, userId: number | null) => 
+  userId ? `cart:user:${userId}` : `cart:${cartToken}`;
 
 type OfferRow = {
-  id: number;
+  id: number | string; // PostgreSQL bigint может вернуться как строка
   name: string;
-  price: number;
-  discount_percent: number | null;
+  price: number | string; // numeric может вернуться как строка
+  discount_percent: number | string | null;
   is_available: boolean;
 };
 
 async function getOffersMap(offerIds: number[]): Promise<Map<number, OfferRow>> {
   if (offerIds.length === 0) return new Map();
-  const { rows } = await query<OfferRow>(
-    `
-    SELECT id, name, price, discount_percent, is_available
-    FROM menu_items
-    WHERE id = ANY($1::int[])
-    `,
-    [offerIds]
-  );
-  const map = new Map<number, OfferRow>();
-  for (const row of rows) map.set(row.id, row);
-  return map;
-}
-
-async function ensureCart(identity: CartIdentity): Promise<number> {
-  const found = await query<{ id: number }>(
-    `SELECT id FROM carts WHERE cart_token = $1 LIMIT 1`,
-    [identity.cartToken]
-  );
-  if (found.rows[0]?.id) return found.rows[0].id;
-
-  const created = await query<{ id: number }>(
-    `
-    INSERT INTO carts (cart_token, user_id, status, restaurant_id, created_at, updated_at)
-    VALUES ($1, $2, 'active', 1, now(), now())
-    RETURNING id
-    `,
-    [identity.cartToken, identity.userId ?? null]
-  );
-  return created.rows[0].id;
+  
+  console.log("[getOffersMap] Looking for offer IDs:", offerIds);
+  console.log("[getOffersMap] Offer IDs type:", typeof offerIds[0], "Array type:", Array.isArray(offerIds));
+  
+  // Проверяем запрос напрямую
+  try {
+    const { rows } = await query<OfferRow>(
+      `
+      SELECT id, name, price, discount_percent, is_available
+      FROM menu_items
+      WHERE id = ANY($1::int[])
+        AND is_active = TRUE
+      `,
+      [offerIds]
+    );
+    
+    console.log("[getOffersMap] Query executed successfully");
+    console.log("[getOffersMap] Found", rows.length, "offers in database");
+    console.log("[getOffersMap] Found IDs:", rows.map(r => r.id));
+    console.log("[getOffersMap] Found rows:", rows.map(r => ({ id: r.id, name: r.name, is_available: r.is_available })));
+    
+    const map = new Map<number, OfferRow>();
+    for (const row of rows) {
+      // PostgreSQL bigint возвращается как строка, конвертируем в число
+      const rowId = typeof row.id === 'string' ? parseInt(row.id, 10) : row.id;
+      map.set(rowId, {
+        ...row,
+        id: rowId,
+        price: typeof row.price === 'string' ? parseFloat(row.price) : row.price,
+        discount_percent: row.discount_percent 
+          ? (typeof row.discount_percent === 'string' ? parseFloat(row.discount_percent) : row.discount_percent)
+          : null,
+      });
+      console.log(`[getOffersMap] Mapped offer ${rowId} (converted from ${row.id}): ${row.name}, available: ${row.is_available}`);
+    }
+    
+    // Проверяем, какие ID не найдены
+    const notFound = offerIds.filter(id => !map.has(id));
+    if (notFound.length > 0) {
+      console.error("[getOffersMap] Offers not found in database:", notFound);
+      console.error("[getOffersMap] Requested IDs:", offerIds);
+      console.error("[getOffersMap] Found IDs:", Array.from(map.keys()));
+      
+      // Попробуем найти без фильтра is_active
+      const { rows: allRows } = await query<OfferRow & { is_active: boolean }>(
+        `
+        SELECT id, name, price, discount_percent, is_available, is_active
+        FROM menu_items
+        WHERE id = ANY($1::int[])
+        `,
+        [notFound]
+      );
+      console.error("[getOffersMap] Found without is_active filter:", allRows.map(r => ({ 
+        id: r.id, 
+        name: r.name, 
+        is_active: r.is_active, 
+        is_available: r.is_available 
+      })));
+    }
+    
+    return map;
+  } catch (e) {
+    console.error("[getOffersMap] Query error:", e);
+    throw e;
+  }
 }
 
 export async function getOrCreateCart(identity: CartIdentity): Promise<CanonicalCart> {
   const redis = getRedis();
-  if (redis) {
-    try {
-      const cached = await redis.get(cacheKey(identity.cartToken));
-      if (cached) {
-        return JSON.parse(cached) as CanonicalCart;
-      }
-    } catch (e) {
-      console.error("[cart cache] read failed", e);
+  if (!redis) {
+    throw new Error("Redis is not available");
+  }
+
+  // Убеждаемся, что Redis подключен
+  if (!redis.isOpen) {
+    await redis.connect();
+  }
+
+  const key = cacheKey(identity.cartToken, identity.userId);
+  
+  try {
+    const cached = await redis.get(key);
+    if (cached) {
+      return JSON.parse(cached) as CanonicalCart;
     }
+  } catch (e) {
+    console.error("[cart cache] read failed", e);
   }
 
-  const cartId = await ensureCart(identity);
-  const { rows } = await query<{
-    id: number;
-    delivery_slot: string | null;
-  }>(
-    `SELECT id, delivery_slot FROM carts WHERE id = $1`,
-    [cartId]
-  );
-
-  const itemsRows = await query<{
-    menu_item_id: number;
-    quantity: number;
-    comment: string | null;
-    allow_replacement: boolean | null;
-    favorite: boolean | null;
-  }>(
-    `
-    SELECT menu_item_id, quantity, comment, allow_replacement, favorite
-    FROM cart_items
-    WHERE cart_id = $1
-    `,
-    [cartId]
-  );
-
-  const offerIds = itemsRows.rows.map((r) => r.menu_item_id);
-  const offersMap = await getOffersMap(offerIds);
-
-  const items: CanonicalCartLine[] = [];
-  let subtotal = 0;
-  let discountTotal = 0;
-
-  for (const row of itemsRows.rows) {
-    const offer = offersMap.get(row.menu_item_id);
-    if (!offer || !offer.is_available) continue;
-    const unitPrice = offer.price;
-    const discount =
-      offer.discount_percent != null && offer.discount_percent > 0
-        ? Math.round(unitPrice * (1 - offer.discount_percent / 100))
-        : null;
-    const finalPrice = discount ?? unitPrice;
-    subtotal += unitPrice * row.quantity;
-    discountTotal += (unitPrice - finalPrice) * row.quantity;
-
-    items.push({
-      offerId: row.menu_item_id,
-      name: offer.name,
-      quantity: row.quantity,
-      unitPrice,
-      discountPrice: discount,
-      comment: row.comment,
-      allowReplacement: row.allow_replacement ?? true,
-      isFavorite: row.favorite ?? false,
-    });
-  }
-
-  return {
-    id: cartId,
+  // Создаем пустую корзину, если её нет в Redis
+  const emptyCart: CanonicalCart = {
     cartToken: identity.cartToken,
-    deliverySlot: rows.rows[0]?.delivery_slot ?? null,
-    items,
+    deliverySlot: null,
+    items: [],
     totals: {
-      subtotal,
-      discountTotal,
-      total: subtotal - discountTotal,
+      subtotal: 0,
+      discountTotal: 0,
+      total: 0,
     },
   };
+
+  // Сохраняем пустую корзину в Redis
+  try {
+    await redis.set(key, JSON.stringify(emptyCart), {
+      EX: CACHE_TTL_SECONDS,
+    });
+  } catch (e) {
+    console.error("[cart cache] failed to save empty cart", e);
+  }
+
+  return emptyCart;
 }
 
 export async function validateAndPersistCart(
@@ -178,130 +179,168 @@ export async function validateAndPersistCart(
   minOrderSum: number;
   isMinOrderReached: boolean;
 }> {
-  const cartId = await ensureCart(identity);
+  const redis = getRedis();
+  if (!redis) {
+    throw new Error("Redis is not available");
+  }
+
+  // Убеждаемся, что Redis подключен
+  if (!redis.isOpen) {
+    await redis.connect();
+  }
+
   const changes: CartChange[] = [];
   const offerIds = input.items.map((i) => i.offerId);
   const offersMap = await getOffersMap(offerIds);
 
+  // Фильтруем недоступные товары
+  console.log("[validateAndPersistCart] Input items:", JSON.stringify(input.items, null, 2));
+  console.log("[validateAndPersistCart] Offer IDs:", offerIds);
+  console.log("[validateAndPersistCart] Offers map size:", offersMap.size);
+  console.log("[validateAndPersistCart] Offers map keys:", Array.from(offersMap.keys()));
+  
   const filtered = input.items.filter((line) => {
     const offer = offersMap.get(line.offerId);
-    if (!offer || !offer.is_available || line.quantity <= 0) {
+    console.log(`[validateAndPersistCart] Checking offer ${line.offerId}:`, {
+      found: !!offer,
+      is_available: offer?.is_available,
+      quantity: line.quantity,
+      offerData: offer ? { id: offer.id, name: offer.name, price: offer.price } : null,
+    });
+    
+    if (!offer) {
+      console.error(`[validateAndPersistCart] Offer ${line.offerId} not found in database!`);
+      console.error(`[validateAndPersistCart] Available offer IDs:`, Array.from(offersMap.keys()));
       changes.push({
         type: "removed",
         offerId: line.offerId,
-        message: "Товар недоступен и был удалён",
+        message: "Товар не найден в базе данных",
       });
       return false;
     }
+    
+    if (!offer.is_available) {
+      console.warn(`[validateAndPersistCart] Offer ${line.offerId} is not available`);
+      changes.push({
+        type: "removed",
+        offerId: line.offerId,
+        message: "Товар недоступен",
+      });
+      return false;
+    }
+    
+    if (line.quantity <= 0) {
+      console.warn(`[validateAndPersistCart] Offer ${line.offerId} has invalid quantity: ${line.quantity}`);
+      changes.push({
+        type: "removed",
+        offerId: line.offerId,
+        message: "Неверное количество",
+      });
+      return false;
+    }
+    
     return true;
   });
+  
+  console.log("[validateAndPersistCart] Filtered items count:", filtered.length, "out of", input.items.length);
+  if (filtered.length !== input.items.length) {
+    console.warn("[validateAndPersistCart] Some items were filtered out!");
+    const filteredIds = filtered.map(f => f.offerId);
+    const removedIds = input.items
+      .filter(item => !filteredIds.includes(item.offerId))
+      .map(item => item.offerId);
+    console.warn("[validateAndPersistCart] Removed offer IDs:", removedIds);
+  }
+  
+  if (filtered.length === 0 && input.items.length > 0) {
+    console.error("[validateAndPersistCart] ALL ITEMS WERE FILTERED OUT!");
+    console.error("[validateAndPersistCart] This means no items will be saved to Redis!");
+  }
 
-  const subtotal = filtered.reduce((acc, line) => {
+  // Строим корзину из отфильтрованных товаров
+  const items: CanonicalCartLine[] = [];
+  let subtotal = 0;
+  let discountTotal = 0;
+
+  for (const line of filtered) {
     const offer = offersMap.get(line.offerId)!;
-    return acc + offer.price * line.quantity;
-  }, 0);
+    const unitPrice = offer.price;
+    const discount =
+      offer.discount_percent && offer.discount_percent > 0
+        ? Math.round(unitPrice * (1 - offer.discount_percent / 100))
+        : null;
+    const finalPrice = discount ?? unitPrice;
+    subtotal += unitPrice * line.quantity;
+    discountTotal += (unitPrice - finalPrice) * line.quantity;
 
-  // sync DB
-  await query("BEGIN");
+    items.push({
+      offerId: line.offerId,
+      name: offer.name,
+      quantity: line.quantity,
+      unitPrice,
+      discountPrice: discount,
+      comment: line.comment ?? null,
+      allowReplacement: line.allowReplacement ?? true,
+      isFavorite: line.isFavorite ?? false,
+    });
+  }
+
+  // Создаем корзину
+  const cart: CanonicalCart = {
+    cartToken: identity.cartToken,
+    deliverySlot: input.deliverySlot ?? null,
+    items,
+    totals: {
+      subtotal,
+      discountTotal,
+      total: subtotal - discountTotal,
+    },
+  };
+
+  // Сохраняем в Redis
+  const key = cacheKey(identity.cartToken, identity.userId);
   try {
-    await query(
-      `
-      INSERT INTO carts (id, user_id, status, restaurant_id, delivery_slot, created_at, updated_at)
-      VALUES ($1, $2, 'active', 1, $3, now(), now())
-      ON CONFLICT (id) DO UPDATE SET delivery_slot = EXCLUDED.delivery_slot, updated_at = now()
-      `,
-      [cartId, identity.userId ?? null, input.deliverySlot ?? null]
-    );
-
-    const keepIds: number[] = [];
-    for (const line of filtered) {
-      const offer = offersMap.get(line.offerId)!;
-      const discountPrice =
-        offer.discount_percent && offer.discount_percent > 0
-          ? Math.round(offer.price * (1 - offer.discount_percent / 100))
-          : null;
-
-    const existingRow = await query<{ id: number }>(
-      `SELECT id FROM cart_items WHERE cart_id = $1 AND menu_item_id = $2 LIMIT 1`,
-      [cartId, line.offerId]
-    );
-    const existingId = existingRow.rows[0]?.id;
-
-    if (existingId) {
-      await query(
-        `
-        UPDATE cart_items
-        SET quantity = $1,
-            item_name = $2,
-            unit_price = $3,
-            comment = $4,
-            allow_replacement = $5,
-            favorite = $6
-        WHERE id = $7
-        `,
-        [
-          line.quantity,
-          offer.name,
-          discountPrice ?? offer.price,
-          line.comment ?? null,
-          line.allowReplacement ?? true,
-          line.isFavorite ?? false,
-          existingId,
-        ]
-      );
-      keepIds.push(existingId);
+    console.log("[cart cache] Saving to Redis, key:", key, "userId:", identity.userId);
+    console.log("[cart cache] Cart to save:", JSON.stringify(cart, null, 2));
+    console.log("[cart cache] Items count:", items.length);
+    console.log("[cart cache] Items:", items.map(i => ({ offerId: i.offerId, name: i.name, quantity: i.quantity })));
+    
+    const cartJson = JSON.stringify(cart);
+    console.log("[cart cache] Cart JSON length:", cartJson.length);
+    
+    await redis.set(key, cartJson, {
+      EX: CACHE_TTL_SECONDS,
+    });
+    
+    console.log("[cart cache] Successfully saved to Redis");
+    
+    // Проверяем, что данные действительно сохранились
+    const verify = await redis.get(key);
+    if (verify) {
+      const parsed = JSON.parse(verify) as CanonicalCart;
+      console.log("[cart cache] Verified: data exists in Redis");
+      console.log("[cart cache] Verified items count:", parsed.items.length);
+      console.log("[cart cache] Verified items:", parsed.items.map(i => ({ offerId: i.offerId, name: i.name, quantity: i.quantity })));
+      
+      if (parsed.items.length !== items.length) {
+        console.error("[cart cache] WARNING: Items count mismatch!", {
+          expected: items.length,
+          actual: parsed.items.length,
+        });
+      }
     } else {
-      const inserted = await query<{ id: number }>(
-        `
-        INSERT INTO cart_items (cart_id, menu_item_id, quantity, item_name, unit_price, comment, allow_replacement, favorite)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        RETURNING id
-        `,
-        [
-          cartId,
-          line.offerId,
-          line.quantity,
-          offer.name,
-          discountPrice ?? offer.price,
-          line.comment ?? null,
-          line.allowReplacement ?? true,
-          line.isFavorite ?? false,
-        ]
-      );
-      keepIds.push(inserted.rows[0].id);
+      console.error("[cart cache] WARNING: Data was not saved to Redis!");
     }
-    }
-
-    if (keepIds.length > 0) {
-      await query(
-        `DELETE FROM cart_items WHERE cart_id = $1 AND id NOT IN (${keepIds
-          .map((_, idx) => `$${idx + 2}`)
-          .join(",")})`,
-        [cartId, ...keepIds]
-      );
-    } else {
-      await query(`DELETE FROM cart_items WHERE cart_id = $1`, [cartId]);
-    }
-
-    await query("COMMIT");
   } catch (e) {
-    await query("ROLLBACK");
+    console.error("[cart cache] write failed", e);
+    console.error("[cart cache] Error details:", {
+      message: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+    });
     throw e;
   }
 
-  const cart = await getOrCreateCart(identity);
   const isMinOrderReached = cart.totals.total >= MIN_ORDER_SUM;
-
-  const redis = getRedis();
-  if (redis) {
-    try {
-      await redis.set(cacheKey(identity.cartToken), JSON.stringify(cart), {
-        EX: CACHE_TTL_SECONDS,
-      });
-    } catch (e) {
-      console.error("[cart cache] write failed", e);
-    }
-  }
 
   return {
     cart,

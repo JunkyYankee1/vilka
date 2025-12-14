@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({
-      cartId: result.cart.id,
+      cartToken: result.cart.cartToken,
       items: result.cart.items,
       totals: result.cart.totals,
     });

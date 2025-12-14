@@ -5,28 +5,15 @@ import { ArrowLeft, X } from "lucide-react";
 import { YMaps, Map, Placemark, useYMaps } from "@iminside/react-yandex-maps";
 
 type Address = {
-  id: string;
-  label: string;
-  details: string;
+  id: number;
+  label: string | null;
+  address_line: string;
+  city: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  is_default: boolean;
+  comment: string | null;
 };
-
-const defaultAddresses: Address[] = [
-  {
-    id: "a1",
-    label: "улица Кибальчича, 2 к4",
-    details: "Москва · кв. 74, подъезд 1, этаж 10",
-  },
-  {
-    id: "a2",
-    label: "Московский проспект, 73 к3 лит А",
-    details: "Санкт-Петербург · кв. 706, этаж 7, Отель vertical",
-  },
-  {
-    id: "a3",
-    label: "улица Студенческая, 22 к3",
-    details: "Москва · кв. 58, подъезд 6, этаж 4",
-  },
-];
 
 type AddressModalProps = {
   isOpen: boolean;
@@ -41,7 +28,9 @@ const AddressModalContent = ({
   onSelectAddress,
 }: AddressModalProps) => {
   const [step, setStep] = useState<"list" | "add">("list");
-  const [selectedId, setSelectedId] = useState(defaultAddresses[0]?.id ?? "");
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
 
   const [city, setCity] = useState("");
   const [street, setStreet] = useState("");
@@ -67,6 +56,26 @@ const AddressModalContent = ({
   // хук из библиотеки, чтобы иметь доступ к ymaps API после загрузки
   const ymaps = useYMaps(["geocode", "suggest"]);
 
+  // Загрузка адресов из БД
+  const loadAddresses = useCallback(async () => {
+    try {
+      setLoading(true);
+      const res = await fetch("/api/addresses");
+      if (res.ok) {
+        const data = await res.json();
+        setAddresses(data.addresses || []);
+        if (data.addresses && data.addresses.length > 0) {
+          const defaultAddr = data.addresses.find((a: Address) => a.is_default) || data.addresses[0];
+          setSelectedId(defaultAddr.id);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to load addresses:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (isOpen) {
       setStep("list");
@@ -78,8 +87,9 @@ const AddressModalContent = ({
       setShowCitySuggestions(false);
       setShowStreetSuggestions(false);
       setCurrentStep("city");
+      loadAddresses();
     }
-  }, [isOpen]);
+  }, [isOpen, loadAddresses]);
 
   // Проверка, содержит ли адрес дом (число в адресе)
   const hasHouseNumber = (address: string): boolean => {
@@ -300,8 +310,32 @@ const AddressModalContent = ({
 
   const handleSelect = (addr: Address) => {
     setSelectedId(addr.id);
-    onSelectAddress(addr.label);
+    onSelectAddress(addr.address_line);
     onClose();
+  };
+
+  const handleDelete = async (e: React.MouseEvent<HTMLButtonElement>, addrId: number) => {
+    e.stopPropagation();
+    if (!confirm("Удалить этот адрес?")) return;
+
+    try {
+      console.log("[AddressModal] Deleting address with id:", addrId);
+      const res = await fetch(`/api/addresses/${addrId}`, {
+        method: "DELETE",
+      });
+      
+      if (res.ok) {
+        console.log("[AddressModal] Address deleted successfully");
+        await loadAddresses();
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("[AddressModal] Failed to delete address:", res.status, errorData);
+        alert(`Не удалось удалить адрес: ${errorData.error || "Неизвестная ошибка"}`);
+      }
+    } catch (err) {
+      console.error("[AddressModal] Failed to delete address:", err);
+      alert("Ошибка при удалении адреса. Проверьте консоль для деталей.");
+    }
   };
 
   // Функция геокодирования (из адреса в координаты)
@@ -503,14 +537,42 @@ const AddressModalContent = ({
     };
   }, [street, city, step, ymaps, handleGeocode]);
 
-  const handleSaveNewAddress = () => {
+  const handleSaveNewAddress = async () => {
     // Формируем полный адрес: улица и дом, город
-    const label = street.trim().length > 0 
+    const addressLine = street.trim().length > 0 
       ? `${street.trim()}, ${city.trim()}`
       : `${city.trim()}`;
 
-    onSelectAddress(label);
-    onClose();
+    try {
+      const res = await fetch("/api/addresses", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          address_line: addressLine,
+          city: city.trim(),
+          latitude: coords[0],
+          longitude: coords[1],
+        }),
+      });
+
+      if (res.ok) {
+        await loadAddresses();
+        onSelectAddress(addressLine);
+        onClose();
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Failed to save address:", res.status, errorData);
+        
+        if (res.status === 401) {
+          alert("Необходимо авторизоваться для сохранения адреса");
+        } else {
+          alert(`Не удалось сохранить адрес: ${errorData.error || "Неизвестная ошибка"}`);
+        }
+      }
+    } catch (e: any) {
+      console.error("Failed to save address:", e);
+      alert("Ошибка при сохранении адреса. Проверьте консоль для деталей.");
+    }
   };
 
   return (
@@ -539,30 +601,52 @@ const AddressModalContent = ({
 
         {step === "list" ? (
           <>
-            <div className="flex flex-col gap-2">
-              {defaultAddresses.map((addr) => {
-                const selected = addr.id === selectedId;
-                return (
-                  <button
-                    key={addr.id}
-                    type="button"
-                    onClick={() => handleSelect(addr)}
-                    className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left transition hover:bg-surface-soft ${
-                      selected ? "bg-surface-soft" : ""
-                    }`}
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-slate-900">
-                        {addr.label}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {addr.details}
-                      </div>
+            {loading ? (
+              <div className="py-8 text-center text-sm text-slate-500">
+                Загрузка адресов...
+              </div>
+            ) : addresses.length === 0 ? (
+              <div className="py-8 text-center text-sm text-slate-500">
+                У вас пока нет сохраненных адресов
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {addresses.map((addr) => {
+                  const selected = addr.id === selectedId;
+                  return (
+                    <div
+                      key={addr.id}
+                      className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 transition ${
+                        selected ? "bg-surface-soft" : ""
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => handleSelect(addr)}
+                        className="flex-1 text-left"
+                      >
+                        <div className="text-sm font-semibold text-slate-900">
+                          {addr.address_line}
+                        </div>
+                        {(addr.city || addr.comment) && (
+                          <div className="text-xs text-slate-500">
+                            {[addr.city, addr.comment].filter(Boolean).join(" · ")}
+                          </div>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e: React.MouseEvent<HTMLButtonElement>) => handleDelete(e, addr.id)}
+                        className="ml-2 flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-red-50 hover:text-red-500"
+                        title="Удалить адрес"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
                     </div>
-                  </button>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
 
             <button
               type="button"

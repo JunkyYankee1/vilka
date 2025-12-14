@@ -31,7 +31,6 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json({
-      cartId: cart.id,
       cartToken: cart.cartToken,
       deliverySlot: cart.deliverySlot,
       totals: cart.totals,

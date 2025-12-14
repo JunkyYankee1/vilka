@@ -10,7 +10,7 @@ const COOKIE_NAME = "vilka_cart";
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
 export async function resolveCartIdentity(): Promise<CartIdentity> {
-  const store = cookies();
+  const store = await cookies();
   let cartToken = store.get(COOKIE_NAME)?.value;
 
   if (!cartToken) {
@@ -23,9 +23,10 @@ export async function resolveCartIdentity(): Promise<CartIdentity> {
     });
   }
 
-  // TODO: replace with real user id from auth session when ready
-  const userId: number | null = null;
+  // Получаем userId из сессии
+  const userIdStr = store.get("vilka_user_id")?.value;
+  const userId = userIdStr ? parseInt(userIdStr, 10) : null;
 
-  return { cartToken, userId };
+  return { cartToken, userId: isNaN(userId as number) ? null : userId };
 }
 

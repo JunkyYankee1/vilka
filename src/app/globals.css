@@ -24,14 +24,17 @@ body {
   color: #111827; /* почти чёрный текст */
 }
 
-/* Скроллбар немного аккуратнее */
-::-webkit-scrollbar {
-  width: 8px;
+/* Скрыть скроллбары, но сохранить скролл */
+html,
+body {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE и Edge */
 }
 
-::-webkit-scrollbar-thumb {
-  background-color: rgba(148, 163, 184, 0.7);
-  border-radius: 999px;
+::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+  width: 0;
+  height: 0;
 }
 
 .vilka-btn-primary {
