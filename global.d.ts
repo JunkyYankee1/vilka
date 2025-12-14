@@ -99,6 +99,8 @@ declare module 'lucide-react' {
   export const Clock: IconComponent;
   export const ChevronRight: IconComponent;
   export const Heart: IconComponent;
+  export const ArrowLeft: IconComponent;
+  export const X: IconComponent;
 }
 
 declare global {

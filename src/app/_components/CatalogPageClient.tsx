@@ -608,9 +608,10 @@ function CatalogUI({
             </div>
           </aside>
 
-          <div className="flex min-w-0 flex-1 min-h-0 flex-col gap-5">
-            <section className="overflow-hidden rounded-[var(--vilka-radius-xl)] border border-surface-soft bg-white shadow-vilka-soft">
-              <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+          <section className="flex min-w-0 flex-1 min-h-0 flex-col gap-4 overflow-y-auto rounded-3xl border border-slate-100 bg-white p-4 shadow-vilka-soft">
+            {/* Информационный блок */}
+            <div className="rounded-[var(--vilka-radius-xl)] border border-surface-soft bg-white p-5 sm:p-6">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="max-w-md">
                   <div className="inline-flex items-center gap-2 rounded-full bg-surface-soft px-3 py-1 text-xs font-medium text-slate-800">
                     <Clock className="h-3.5 w-3.5" />
@@ -641,9 +642,7 @@ function CatalogUI({
                   </button>
                 </div>
               </div>
-            </section>
-
-            <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto rounded-3xl border border-slate-100 bg-white p-4 shadow-vilka-soft">
+            </div>
               <div className="text-xs text-slate-500">
                 {currentCategory?.name ?? "Категория"} <span>·</span> {currentSubcategory?.name ?? "Подкатегория"}{" "}
                 <span>·</span>{" "}
@@ -782,8 +781,7 @@ function CatalogUI({
                   </div>
                 )}
               </div>
-            </section>
-          </div>
+          </section>
 
           <aside className="hidden h-full w-full shrink-0 overflow-y-auto lg:block">
             <div className="flex h-full flex-col gap-3 pb-6">
