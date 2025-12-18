@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  useEffect,
-  useState,
-  ChangeEvent,
-  useRef,
-  KeyboardEvent,
-} from "react";
+import { useEffect, useState, ChangeEvent, useRef, KeyboardEvent } from "react";
 import { ArrowLeft, X } from "lucide-react";
 
 type AuthModalProps = {
@@ -15,11 +9,13 @@ type AuthModalProps = {
   onSuccess?: () => void;
 };
 
+
 const MAX_PHONE_DIGITS = 10; // цифр после +7
 const VALID_CODES = ["0000", "1111"]; // технические коды для авторизации
 
 export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [step, setStep] = useState<"phone" | "code">("phone");
+  const [closing, setClosing] = useState(false);
 
   // телефон: храним только цифры после +7
   const [phoneDigits, setPhoneDigits] = useState("");
@@ -56,6 +52,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
       setCode(["", "", "", ""]);
       setCodeError(false);
       setTimer(60);
+      setClosing(false); // сбрасываем статус закрытия
     }
   }, [isOpen]);
 
@@ -72,10 +69,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
 
     return () => window.clearInterval(id);
   }, [step]);
-
-  if (!isOpen) return null;
-
-  /* ========== Телефон ========== */
 
   const handlePhoneChange = (e: ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
@@ -94,8 +87,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
 
     setPhoneDigits(digits);
   };
-
-  /* ========== Код из СМС ========== */
 
   const handleCodeChange = (index: number, value: string) => {
     const digit = value.replace(/\D/g, "").slice(0, 1);
@@ -139,6 +130,14 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
     return `${m}:${s.toString().padStart(2, "0")}`;
   };
 
+  const closeModal = () => {
+    if (closing) return;
+    setClosing(true); // начинаем анимацию закрытия
+    window.setTimeout(() => {
+      onClose();
+    }, 500); // ждём окончания анимации
+  };
+
   const handleCodeSubmit = async (codeValue: string) => {
     const trimmedCode = codeValue.trim();
     
@@ -165,7 +164,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
       console.log("Auth success:", data);
 
       // Успешная авторизация
-      onClose();
       // Вызываем callback для обновления состояния пользователя
       if (onSuccess) {
         onSuccess();
@@ -175,6 +173,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           window.location.reload();
         }
       }
+      closeModal();
     } catch (e) {
       console.error("Auth error:", e);
       setCodeError(true);
@@ -186,20 +185,24 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 px-4">
-      <div className="relative w-full max-w-md rounded-[32px] bg-white p-6 sm:p-8 shadow-vilka-soft">
+    <div className="fixed inset-0 z-40 flex items-center justify-end bg-black/40 px-4">
+      <div
+        className={`auth-modal relative w-full max-w-md rounded-[32px] bg-white p-6 sm:p-8 shadow-vilka-soft ${
+          closing ? "closing" : ""
+        }`}
+      >
         {/* Верхняя панель */}
         <div className="mb-8 flex items-center justify-between">
           <button
             type="button"
-            onClick={() => (step === "phone" ? onClose() : setStep("phone"))}
+            onClick={() => (step === "phone" ? closeModal() : setStep("phone"))}
             className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-soft text-slate-700"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeModal}
             className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-soft text-slate-700"
           >
             <X className="h-4 w-4" />
@@ -224,7 +227,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
               onClick={() => {
                 if (isPhoneComplete) {
                   setStep("code");
-                  // фокус на первый инпут
                   setTimeout(() => {
                     codeInputsRef.current[0]?.focus();
                   }, 0);
@@ -293,7 +295,6 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
                 <span>{formatTimer(timer)}</span>
               </div>
             </div>
-            {/* Кнопки больше нет — код проверяется автоматически */}
           </>
         )}
       </div>
