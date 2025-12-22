@@ -11,6 +11,7 @@ type CatalogRow = {
   discount_percent: number | null;
   image_url: string | null;
   is_brand_anonymous: boolean;
+  stock_qty: number;
   ref_category_id: number;
   category_level: number;
   level1_code: string | null;
@@ -34,6 +35,7 @@ export async function getCatalogData(): Promise<CatalogData> {
       mi.discount_percent   AS discount_percent,
       mi.image_url          AS image_url,
       mi.is_brand_anonymous AS is_brand_anonymous,
+      mi.stock_qty          AS stock_qty,
       c.id                  AS ref_category_id,
       c.level               AS category_level,
       CASE
@@ -184,6 +186,7 @@ export async function getCatalogData(): Promise<CatalogData> {
       etaMinutes: undefined,
       imageUrl: row.image_url,
       menuItemName: row.menu_item_name,
+      stock: row.stock_qty ?? 0,
     });
   }
 

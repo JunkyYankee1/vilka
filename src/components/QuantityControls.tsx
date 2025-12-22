@@ -4,6 +4,7 @@ type QuantityControlsProps = {
   quantity: number;
   onAdd: () => void;
   onRemove: () => void;
+  canAdd?: boolean;
   size?: "sm" | "md";
   className?: string;
 };
@@ -16,6 +17,7 @@ export function QuantityControls({
   quantity,
   onAdd,
   onRemove,
+  canAdd = true,
   size = "md",
   className = "",
 }: QuantityControlsProps) {
@@ -59,17 +61,21 @@ export function QuantityControls({
         >
           {quantity}
         </span>
-        <button
-          type="button"
-          onClick={handleAdd}
-          aria-label="Увеличить количество"
-          className={`flex ${classes.button} items-center justify-center rounded-full bg-white font-semibold leading-none text-emerald-500 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1`}
-        >
-          +
-        </button>
+        {canAdd && (
+          <button
+            type="button"
+            onClick={handleAdd}
+            aria-label="Увеличить количество"
+            className={`flex ${classes.button} items-center justify-center rounded-full bg-white font-semibold leading-none text-emerald-500 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1`}
+          >
+            +
+          </button>
+        )}
       </div>
     );
   }
+
+  if (!canAdd) return null;
 
   return (
     <button

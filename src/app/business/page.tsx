@@ -14,6 +14,7 @@ type BusinessItem = {
   ref_category_id: number;
   is_brand_anonymous: boolean;
   is_active: boolean | null; // может прийти null/undefined из старых данных
+  stock_qty: number;
 };
 
 type Category = {
@@ -44,6 +45,7 @@ export default function BusinessPage() {
   const [price, setPrice] = useState("");
   const [discountPercent, setDiscountPercent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [stockQty, setStockQty] = useState("100");
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [categoryQuery, setCategoryQuery] = useState("");
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
@@ -52,6 +54,7 @@ export default function BusinessPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
+  const stockEditPrevRef = useRef<Record<number, number>>({});
 
   // === Восстановление авторизации из localStorage ===
   useEffect(() => {
@@ -214,6 +217,11 @@ export default function BusinessPage() {
       return;
     }
 
+    if (stockQty && (!Number.isFinite(Number(stockQty)) || Number(stockQty) < 0)) {
+      setFormError("Остаток должен быть числом >= 0");
+      return;
+    }
+
     setIsSaving(true);
     try {
       const res = await fetch("/api/business/menu-items", {
@@ -226,6 +234,7 @@ export default function BusinessPage() {
           price: Number(price),
           discountPercent: discountPercent ? Number(discountPercent) : null,
           imageUrl: imageUrl.trim() || null,
+          stockQty: stockQty ? Number(stockQty) : null,
           refCategoryId: Number(categoryId),
           isBrandAnonymous,
         }),
@@ -252,6 +261,7 @@ export default function BusinessPage() {
       setPrice("");
       setDiscountPercent("");
       setImageUrl("");
+      setStockQty("100");
       setCategoryId("");
       setCategoryQuery("");
       setIsBrandAnonymous(false);
@@ -268,6 +278,7 @@ export default function BusinessPage() {
           ref_category_id: Number(categoryId),
           is_brand_anonymous: isBrandAnonymous,
           is_active: true,
+          stock_qty: stockQty ? Number(stockQty) : 100,
         },
         ...prev,
       ]);
@@ -389,6 +400,40 @@ export default function BusinessPage() {
       setItems((prevItems) =>
         prevItems.map((it) =>
           it.id === id ? { ...it, is_brand_anonymous: prev } : it
+        )
+      );
+    }
+  };
+
+  // === Обновление остатка ===
+  const handleUpdateStock = async (id: number, nextStockQty: number, prevStockQty: number) => {
+    if (!restaurantId) return;
+    if (!Number.isFinite(nextStockQty) || nextStockQty < 0) return;
+
+    // оптимистично уже обновили в стейте; если сервер не принял — откатываем
+    try {
+      const res = await fetch(
+        `/api/business/menu-items/${id}?restaurantId=${restaurantId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stockQty: Math.floor(nextStockQty) }),
+        }
+      );
+
+      if (!res.ok) {
+        console.error("Ошибка при PATCH stockQty:", res.status);
+        setItems((prevItems) =>
+          prevItems.map((it) =>
+            it.id === id ? { ...it, stock_qty: prevStockQty } : it
+          )
+        );
+      }
+    } catch (e) {
+      console.error("Сетевая ошибка при PATCH stockQty:", e);
+      setItems((prevItems) =>
+        prevItems.map((it) =>
+          it.id === id ? { ...it, stock_qty: prevStockQty } : it
         )
       );
     }
@@ -613,6 +658,18 @@ export default function BusinessPage() {
                   </label>
 
                   <label className="text-xs text-slate-600">
+                    Остаток, шт
+                    <input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={stockQty}
+                      onChange={(e) => setStockQty(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                    />
+                  </label>
+
+                  <label className="text-xs text-slate-600">
                     Ссылка на картинку блюда
                     <input
                       type="text"
@@ -722,6 +779,40 @@ export default function BusinessPage() {
                                 </span>
                               )}
                             </div>
+                          </div>
+
+                          {/* Остаток */}
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-slate-600">
+                              Остаток
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              step="1"
+                              value={Number.isFinite(item.stock_qty) ? item.stock_qty : 0}
+                              onFocus={() => {
+                                stockEditPrevRef.current[item.id] = Number.isFinite(item.stock_qty)
+                                  ? item.stock_qty
+                                  : 0;
+                              }}
+                              onChange={(e) => {
+                                const next = Math.max(0, Math.floor(Number(e.target.value || 0)));
+                                setItems((prevItems) =>
+                                  prevItems.map((it) =>
+                                    it.id === item.id ? { ...it, stock_qty: next } : it
+                                  )
+                                );
+                              }}
+                              onBlur={(e) => {
+                                const next = Math.max(0, Math.floor(Number(e.target.value || 0)));
+                                const prev = stockEditPrevRef.current[item.id];
+                                if (typeof prev === "number" && next !== prev) {
+                                  handleUpdateStock(item.id, next, prev);
+                                }
+                              }}
+                              className="w-24 rounded-2xl border border-slate-200 bg-white px-3 py-1.5 text-right text-xs outline-none focus:border-brand"
+                            />
                           </div>
 
                           {/* Переключатели */}

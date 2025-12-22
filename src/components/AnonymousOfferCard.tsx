@@ -8,6 +8,7 @@ type AnonymousOfferCardProps = {
   subtitle?: string;
   imageUrl?: string | null;
   quantity?: number;
+  isSoldOut?: boolean;
   onAdd?: () => void;
   onRemove?: () => void;
 };
@@ -20,6 +21,7 @@ const AnonymousOfferCard = ({
   subtitle,
   imageUrl,
   quantity = 0,
+  isSoldOut = false,
   onAdd,
   onRemove,
 }: AnonymousOfferCardProps) => {
@@ -33,7 +35,7 @@ const AnonymousOfferCard = ({
   const showOldPrice = oldPrice && oldPrice > price && quantity === 0;
 
   const handleCardClick = () => {
-    if (hasHandlers && quantity === 0) {
+    if (hasHandlers && quantity === 0 && !isSoldOut) {
       onAdd();
     }
   };
@@ -61,15 +63,24 @@ const AnonymousOfferCard = ({
           </div>
         )}
 
-        {/* Оверлей с одной большой цифрой количества */}
-        {quantity > 0 && (
+        {/* Оверлей: либо большой счётчик, либо "Товар закончился" */}
+        {(quantity > 0 || isSoldOut) && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-            <span
-              className="text-6xl font-bold text-white drop-shadow-lg"
-              style={{ color: "rgb(255, 255, 255)" }}
-            >
-              {quantity}
-            </span>
+            {isSoldOut ? (
+              <span
+                className="text-2xl font-bold text-white drop-shadow-lg text-center"
+                style={{ color: "rgb(255, 255, 255)" }}
+              >
+                Товар закончился
+              </span>
+            ) : (
+              <span
+                className="text-6xl font-bold text-white drop-shadow-lg"
+                style={{ color: "rgb(255, 255, 255)" }}
+              >
+                {quantity}
+              </span>
+            )}
           </div>
         )}
 
@@ -130,15 +141,64 @@ const AnonymousOfferCard = ({
                   <span className="text-sm font-bold">−</span>
                 </div>
                 <span className="text-base font-semibold text-white">{price} ₽</span>
+                {!isSoldOut && (
+                  <button
+                    type="button"
+                    onClick={(e: { stopPropagation: () => void }) => {
+                      e.stopPropagation();
+                      onAdd();
+                    }}
+                    className="flex items-center justify-center text-white transition hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-green-500"
+                    aria-label="Увеличить количество"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      fill="none"
+                      viewBox="0 0 16 16"
+                      className="min-w-[16px] min-h-[16px] shrink-0"
+                      style={{ color: "#FFFFFF" }}
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M8 0c.43 0 .778.348.778.778v5.444a1 1 0 0 0 1 1h5.444a.778.778 0 1 1 0 1.556H9.778a1 1 0 0 0-1 1v5.444a.778.778 0 1 1-1.556 0V9.778a1 1 0 0 0-1-1H.778a.778.778 0 0 1 0-1.556h5.444a1 1 0 0 0 1-1V.778C7.222.348 7.57 0 8 0"
+                      />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-end">
+              {isSoldOut ? (
+                <div
+                  className="flex items-center gap-2 rounded-full px-4 py-2.5 opacity-80"
+                  style={{ backgroundColor: "#00B749" }}
+                >
+                  {showOldPrice && (
+                    <span className="text-sm font-semibold text-white/70 line-through">
+                      {oldPrice} ₽
+                    </span>
+                  )}
+                  <span className="text-base font-semibold text-white">{price} ₽</span>
+                </div>
+              ) : (
                 <button
                   type="button"
                   onClick={(e: { stopPropagation: () => void }) => {
                     e.stopPropagation();
                     onAdd();
                   }}
-                  className="flex items-center justify-center text-white transition hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-green-500"
-                  aria-label="Увеличить количество"
+                  className="flex items-center gap-2 rounded-full px-4 py-2.5 transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-1"
+                  style={{ backgroundColor: "#00B749" }}
                 >
+                  {showOldPrice && (
+                    <span className="text-sm font-semibold text-white/70 line-through">
+                      {oldPrice} ₽
+                    </span>
+                  )}
+                  <span className="text-base font-semibold text-white">{price} ₽</span>
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
                     width="16"
@@ -154,40 +214,7 @@ const AnonymousOfferCard = ({
                     />
                   </svg>
                 </button>
-              </div>
-            </div>
-          ) : (
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={(e: { stopPropagation: () => void }) => {
-                  e.stopPropagation();
-                  onAdd();
-                }}
-                className="flex items-center gap-2 rounded-full px-4 py-2.5 transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-1"
-                style={{ backgroundColor: "#00B749" }}
-              >
-                {showOldPrice && (
-                  <span className="text-sm font-semibold text-white/70 line-through">
-                    {oldPrice} ₽
-                  </span>
-                )}
-                <span className="text-base font-semibold text-white">{price} ₽</span>
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  fill="none"
-                  viewBox="0 0 16 16"
-                  className="min-w-[16px] min-h-[16px] shrink-0"
-                  style={{ color: "#FFFFFF" }}
-                >
-                  <path
-                    fill="currentColor"
-                    d="M8 0c.43 0 .778.348.778.778v5.444a1 1 0 0 0 1 1h5.444a.778.778 0 1 1 0 1.556H9.778a1 1 0 0 0-1 1v5.444a.778.778 0 1 1-1.556 0V9.778a1 1 0 0 0-1-1H.778a.778.778 0 0 1 0-1.556h5.444a1 1 0 0 0 1-1V.778C7.222.348 7.57 0 8 0"
-                  />
-                </svg>
-              </button>
+              )}
             </div>
           )
         ) : (

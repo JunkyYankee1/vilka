@@ -12,6 +12,7 @@ type CartContextValue = {
   quantities: CartState;
   entries: CartEntry[];
   totals: CartTotals;
+  offerStocks: Record<OfferId, number | undefined>;
   add: (offerId: OfferId) => void;
   remove: (offerId: OfferId) => void;
 };
@@ -24,6 +25,7 @@ type CartProviderProps = PropsWithChildren<{
 
 export function CartProvider({ offers, children }: CartProviderProps) {
   const [cart, setCart] = useState<CartState>({});
+  const [offerStocks, setOfferStocks] = useState<Record<OfferId, number | undefined>>({});
   const [isLoading, setIsLoading] = useState(true);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedRef = useRef(false);
@@ -97,12 +99,6 @@ export function CartProvider({ offers, children }: CartProviderProps) {
 
     console.log("[CartProvider] Prepared items for sync:", items);
 
-    // Не синхронизируем пустую корзину
-    if (items.length === 0) {
-      console.log("[CartProvider] Skipping sync for empty cart");
-      return;
-    }
-
     // Проверка isLoading уже выполнена в useEffect перед вызовом этой функции
 
     try {
@@ -143,6 +139,17 @@ export function CartProvider({ offers, children }: CartProviderProps) {
           console.log(`[CartProvider] Mapping server item: ${item.offerId} (number) -> "${stringId}" (string), qty: ${item.quantity}`);
         }
       }
+
+      // Обновляем локальную карту остатков (если сервер её прислал)
+      if (data.stockByOfferId && typeof data.stockByOfferId === "object") {
+        const nextStocks: Record<OfferId, number | undefined> = {};
+        for (const [k, v] of Object.entries(data.stockByOfferId as Record<string, unknown>)) {
+          const stringId = String(k) as OfferId;
+          const num = typeof v === "number" ? v : Number(v);
+          nextStocks[stringId] = Number.isFinite(num) ? num : undefined;
+        }
+        setOfferStocks((prev) => ({ ...prev, ...nextStocks }));
+      }
       
       console.log("[CartProvider] Updating cart state from server:", serverQuantities);
       console.log("[CartProvider] Previous cart state:", cart);
@@ -174,12 +181,8 @@ export function CartProvider({ offers, children }: CartProviderProps) {
       return;
     }
 
-    // Пропускаем синхронизацию, если корзина пустая (после загрузки)
-    const hasItems = Object.values(cart).some(qty => qty > 0);
-    if (!hasItems) {
-      console.log("[CartProvider] Skipping sync effect - cart is empty");
-      return;
-    }
+    // Корзину синхронизируем даже если она стала пустой —
+    // это важно для корректного "возврата" остатков в БД и очистки Redis-состояния.
 
     // Очищаем предыдущий таймаут
     if (syncTimeoutRef.current) {
@@ -217,10 +220,11 @@ export function CartProvider({ offers, children }: CartProviderProps) {
       quantities: cart,
       entries,
       totals,
+      offerStocks,
       add,
       remove,
     }),
-    [cart, entries, totals]
+    [cart, entries, totals, offerStocks]
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

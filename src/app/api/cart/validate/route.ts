@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
       userId: identity.userId,
     });
 
-    const { cart, changes, minOrderSum, isMinOrderReached } =
+    const { cart, changes, minOrderSum, isMinOrderReached, stockByOfferId } =
       await validateAndPersistCart(identity, {
         deliverySlot: body.deliverySlot ?? null,
         items: body.items ?? [],
@@ -37,6 +37,7 @@ export async function POST(req: NextRequest) {
       changes,
       minOrderSum,
       isMinOrderReached,
+      stockByOfferId,
     });
   } catch (err) {
     console.error("[POST /api/cart/validate] Error:", err);

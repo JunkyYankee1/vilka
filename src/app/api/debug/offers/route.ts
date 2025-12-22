@@ -30,9 +30,10 @@ export async function GET(req: NextRequest) {
       price: number;
       is_available: boolean;
       is_active: boolean;
+      stock_qty: number;
     }>(
       `
-      SELECT id, name, price, is_available, is_active
+      SELECT id, name, price, is_available, is_active, stock_qty
       FROM menu_items
       WHERE id = ANY($1::int[])
       `,
@@ -50,6 +51,7 @@ export async function GET(req: NextRequest) {
         price: r.price,
         is_available: r.is_available,
         is_active: r.is_active,
+        stock_qty: r.stock_qty,
       })),
       notFound: notFoundIds,
       summary: {

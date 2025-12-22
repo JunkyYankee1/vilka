@@ -40,19 +40,22 @@ export async function PATCH(req: NextRequest) {
     const {
       isActive,
       isBrandAnonymous,
+      stockQty,
     } = body as {
       isActive?: boolean;
       isBrandAnonymous?: boolean;
+      stockQty?: number;
     };
 
     if (
       typeof isActive !== "boolean" &&
-      typeof isBrandAnonymous !== "boolean"
+      typeof isBrandAnonymous !== "boolean" &&
+      typeof stockQty !== "number"
     ) {
       return NextResponse.json(
         {
           error:
-            "Нужно передать хотя бы одно поле: isActive или isBrandAnonymous",
+            "Нужно передать хотя бы одно поле: isActive, isBrandAnonymous или stockQty",
         },
         { status: 400 }
       );
@@ -70,6 +73,17 @@ export async function PATCH(req: NextRequest) {
     if (typeof isBrandAnonymous === "boolean") {
       setParts.push(`is_brand_anonymous = $${idx++}`);
       values.push(isBrandAnonymous);
+    }
+
+    if (typeof stockQty === "number") {
+      if (!Number.isFinite(stockQty) || stockQty < 0) {
+        return NextResponse.json(
+          { error: "stockQty должен быть числом >= 0" },
+          { status: 400 }
+        );
+      }
+      setParts.push(`stock_qty = $${idx++}`);
+      values.push(Math.floor(stockQty));
     }
 
     values.push(menuItemId);   // $idx

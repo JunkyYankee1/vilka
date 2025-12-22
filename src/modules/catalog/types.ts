@@ -31,6 +31,7 @@ export type Offer = {
   etaMinutes?: number;
   imageUrl?: string | null;
   menuItemName: string;
+  stock: number;
 };
 
 export type CatalogData = {

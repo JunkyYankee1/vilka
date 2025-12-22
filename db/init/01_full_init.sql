@@ -410,6 +410,7 @@ CREATE TABLE public.menu_items (
     currency text DEFAULT 'RUB'::text NOT NULL,
     is_active boolean DEFAULT true NOT NULL,
     is_available boolean DEFAULT true NOT NULL,
+    stock_qty integer DEFAULT 100 NOT NULL,
     image_url text,
     weight_grams integer,
     calories integer,

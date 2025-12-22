@@ -69,7 +69,7 @@ function CatalogUI({
   catalog,
   indexes,
 }: CatalogPageClientProps & { indexes: CatalogIndexes }) {
-  const { quantities, entries, totals, add, remove } = useCart();
+  const { quantities, entries, totals, offerStocks, add, remove } = useCart();
 
   // #region agent log
   useEffect(() => {
@@ -282,6 +282,7 @@ function CatalogUI({
                   subtitle={baseItem.description}
                   imageUrl={anon.imageUrl ?? undefined}
                   quantity={quantities[anon.id] ?? 0}
+                  isSoldOut={((offerStocks[anon.id] ?? anon.stock) ?? 0) <= 0}
                   onAdd={() => add(anon.id)}
                   onRemove={() => remove(anon.id)}
                 />
@@ -331,6 +332,7 @@ function CatalogUI({
                       subtitle={baseItem.description}
                       imageUrl={offer.imageUrl ?? undefined}
                       quantity={quantities[offer.id] ?? 0}
+                      isSoldOut={((offerStocks[offer.id] ?? offer.stock) ?? 0) <= 0}
                       onAdd={() => add(offer.id)}
                       onRemove={() => remove(offer.id)}
                     />
@@ -504,7 +506,10 @@ function CatalogUI({
                         {entries.length === 0 ? (
                           <div className="text-xs text-slate-500">В корзине пока пусто</div>
                         ) : (
-                          entries.map(({ offer, quantity }) => (
+                          entries.map(({ offer, quantity }) => {
+                            const isSoldOut =
+                              (((offerStocks[offer.id] ?? offer.stock) ?? 0) as number) <= 0;
+                            return (
                             <div
                               key={offer.id}
                               className="flex items-center justify-between rounded-xl bg-surface-soft px-2 py-2"
@@ -524,11 +529,13 @@ function CatalogUI({
                                   quantity={quantity}
                                   onAdd={() => add(offer.id)}
                                   onRemove={() => remove(offer.id)}
+                                  canAdd={!isSoldOut}
                                   size="sm"
                                 />
                               </div>
                             </div>
-                          ))
+                            );
+                          })
                         )}
                       </div>
 
@@ -973,6 +980,8 @@ function CatalogUI({
                   <>
                     <div className="mt-3 space-y-3">
                       {entries.map(({ offer, quantity, lineTotal, lineOldPrice }) => {
+                        const isSoldOut =
+                          (((offerStocks[offer.id] ?? offer.stock) ?? 0) as number) <= 0;
                         const base = baseItems.find((i) => i.id === offer.baseItemId);
                         const noteState = lineNotes[offer.id] ?? { comment: "", allowReplacement: true };
 
@@ -1040,6 +1049,7 @@ function CatalogUI({
                                       quantity={quantity}
                                       onAdd={() => add(offer.id)}
                                       onRemove={() => remove(offer.id)}
+                                      canAdd={!isSoldOut}
                                       size="sm"
                                     />
                                   </div>

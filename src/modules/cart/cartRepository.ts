@@ -1,4 +1,4 @@
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { getRedis } from "@/lib/redis";
 
 export type CartIdentity = {
@@ -37,7 +37,7 @@ export type CanonicalCart = {
 };
 
 export type CartChange = {
-  type: "removed" | "price_changed";
+  type: "removed" | "price_changed" | "quantity_changed";
   offerId: number;
   message: string;
 };
@@ -55,6 +55,8 @@ type OfferRow = {
   price: number | string; // numeric может вернуться как строка
   discount_percent: number | string | null;
   is_available: boolean;
+  is_active: boolean;
+  stock_qty: number;
 };
 
 async function getOffersMap(offerIds: number[]): Promise<Map<number, OfferRow>> {
@@ -67,10 +69,9 @@ async function getOffersMap(offerIds: number[]): Promise<Map<number, OfferRow>> 
   try {
     const { rows } = await query<OfferRow>(
       `
-      SELECT id, name, price, discount_percent, is_available
+      SELECT id, name, price, discount_percent, is_available, is_active, stock_qty
       FROM menu_items
       WHERE id = ANY($1::int[])
-        AND is_active = TRUE
       `,
       [offerIds]
     );
@@ -102,10 +103,10 @@ async function getOffersMap(offerIds: number[]): Promise<Map<number, OfferRow>> 
       console.error("[getOffersMap] Requested IDs:", offerIds);
       console.error("[getOffersMap] Found IDs:", Array.from(map.keys()));
       
-      // Попробуем найти без фильтра is_active
-      const { rows: allRows } = await query<OfferRow & { is_active: boolean }>(
+      // Попробуем найти без фильтра (на всякий)
+      const { rows: allRows } = await query<OfferRow>(
         `
-        SELECT id, name, price, discount_percent, is_available, is_active
+        SELECT id, name, price, discount_percent, is_available, is_active, stock_qty
         FROM menu_items
         WHERE id = ANY($1::int[])
         `,
@@ -180,6 +181,7 @@ export async function validateAndPersistCart(
   changes: CartChange[];
   minOrderSum: number;
   isMinOrderReached: boolean;
+  stockByOfferId: Record<number, number>;
 }> {
   const redis = getRedis();
   if (!redis) {
@@ -192,71 +194,156 @@ export async function validateAndPersistCart(
   }
 
   const changes: CartChange[] = [];
-  const offerIds = input.items.map((i) => i.offerId);
-  const offersMap = await getOffersMap(offerIds);
 
-  // Фильтруем недоступные товары
-  console.log("[validateAndPersistCart] Input items:", JSON.stringify(input.items, null, 2));
-  console.log("[validateAndPersistCart] Offer IDs:", offerIds);
-  console.log("[validateAndPersistCart] Offers map size:", offersMap.size);
-  console.log("[validateAndPersistCart] Offers map keys:", Array.from(offersMap.keys()));
-  
-  const filtered = input.items.filter((line) => {
-    const offer = offersMap.get(line.offerId);
-    console.log(`[validateAndPersistCart] Checking offer ${line.offerId}:`, {
-      found: !!offer,
-      is_available: offer?.is_available,
-      quantity: line.quantity,
-      offerData: offer ? { id: offer.id, name: offer.name, price: offer.price } : null,
-    });
-    
-    if (!offer) {
-      console.error(`[validateAndPersistCart] Offer ${line.offerId} not found in database!`);
-      console.error(`[validateAndPersistCart] Available offer IDs:`, Array.from(offersMap.keys()));
-      changes.push({
-        type: "removed",
-        offerId: line.offerId,
-        message: "Товар не найден в базе данных",
-      });
-      return false;
-    }
-    
-    if (!offer.is_available) {
-      console.warn(`[validateAndPersistCart] Offer ${line.offerId} is not available`);
-      changes.push({
-        type: "removed",
-        offerId: line.offerId,
-        message: "Товар недоступен",
-      });
-      return false;
-    }
-    
-    if (line.quantity <= 0) {
-      console.warn(`[validateAndPersistCart] Offer ${line.offerId} has invalid quantity: ${line.quantity}`);
-      changes.push({
-        type: "removed",
-        offerId: line.offerId,
-        message: "Неверное количество",
-      });
-      return false;
-    }
-    
-    return true;
-  });
-  
-  console.log("[validateAndPersistCart] Filtered items count:", filtered.length, "out of", input.items.length);
-  if (filtered.length !== input.items.length) {
-    console.warn("[validateAndPersistCart] Some items were filtered out!");
-    const filteredIds = filtered.map(f => f.offerId);
-    const removedIds = input.items
-      .filter(item => !filteredIds.includes(item.offerId))
-      .map(item => item.offerId);
-    console.warn("[validateAndPersistCart] Removed offer IDs:", removedIds);
+  // Берём текущее состояние корзины из Redis, чтобы понять "дельту" и корректно
+  // списывать/возвращать остатки в БД.
+  const prevCart = await getOrCreateCart(identity);
+  const prevQtyByOfferId = new Map<number, number>(
+    prevCart.items.map((i) => [i.offerId, i.quantity])
+  );
+
+  const desiredQtyByOfferId = new Map<number, number>();
+  const inputMetaByOfferId = new Map<number, CartLineInput>();
+  for (const line of input.items ?? []) {
+    desiredQtyByOfferId.set(line.offerId, line.quantity);
+    inputMetaByOfferId.set(line.offerId, line);
   }
-  
-  if (filtered.length === 0 && input.items.length > 0) {
-    console.error("[validateAndPersistCart] ALL ITEMS WERE FILTERED OUT!");
-    console.error("[validateAndPersistCart] This means no items will be saved to Redis!");
+
+  const allOfferIds = Array.from(
+    new Set<number>([
+      ...Array.from(prevQtyByOfferId.keys()),
+      ...Array.from(desiredQtyByOfferId.keys()),
+    ])
+  );
+
+  const nextQtyByOfferId = new Map<number, number>();
+  const offersMap = new Map<number, OfferRow>();
+  let stockByOfferId: Record<number, number> = {};
+
+  if (allOfferIds.length > 0) {
+    await withTransaction(async (client) => {
+      const res = await client.query<OfferRow>(
+        `
+        SELECT id, name, price, discount_percent, is_available, is_active, stock_qty
+        FROM menu_items
+        WHERE id = ANY($1::int[])
+        FOR UPDATE
+        `,
+        [allOfferIds]
+      );
+
+      for (const row of res.rows) {
+        const rowId = typeof row.id === "string" ? parseInt(row.id, 10) : row.id;
+        offersMap.set(rowId, {
+          ...row,
+          id: rowId,
+          price: typeof row.price === "string" ? parseFloat(row.price) : row.price,
+          discount_percent: row.discount_percent
+            ? typeof row.discount_percent === "string"
+              ? parseFloat(row.discount_percent)
+              : row.discount_percent
+            : null,
+          stock_qty: Number.isFinite((row as any).stock_qty) ? (row as any).stock_qty : 0,
+        });
+      }
+
+      for (const offerId of allOfferIds) {
+        const offer = offersMap.get(offerId);
+        const prevQty = prevQtyByOfferId.get(offerId) ?? 0;
+        const desiredQty = desiredQtyByOfferId.get(offerId) ?? 0;
+
+        let nextQty = desiredQty;
+
+        if (!offer) {
+          if (desiredQty > 0 || prevQty > 0) {
+            changes.push({
+              type: "removed",
+              offerId,
+              message: "Товар не найден в базе данных",
+            });
+          }
+          nextQty = 0;
+        } else if (!offer.is_active || !offer.is_available) {
+          if (desiredQty > 0 || prevQty > 0) {
+            changes.push({
+              type: "removed",
+              offerId,
+              message: "Товар недоступен",
+            });
+          }
+          nextQty = 0;
+        } else {
+          if (desiredQty <= 0) {
+            nextQty = 0;
+          } else {
+            // stock_qty — это текущий остаток "вне корзин" (мы его уже уменьшаем при добавлении в корзину).
+            // Поэтому максимально допустимое количество = то, что уже было в корзине + текущий остаток.
+            const maxAllowed = prevQty + Math.max(0, offer.stock_qty ?? 0);
+            if (desiredQty > maxAllowed) {
+              nextQty = maxAllowed;
+              changes.push({
+                type: "quantity_changed",
+                offerId,
+                message:
+                  maxAllowed > 0
+                    ? `Доступно только ${maxAllowed} шт.`
+                    : "Товар закончился",
+              });
+            }
+          }
+        }
+
+        // Применяем остатки в БД по дельте (новое - старое)
+        const delta = nextQty - prevQty;
+        if (offer && delta !== 0) {
+          if (delta > 0) {
+            // Списываем
+            if (offer.stock_qty < delta) {
+              // Safety net: не уходим в минус даже при неожиданной рассинхронизации
+              nextQty = prevQty + Math.max(0, offer.stock_qty);
+            } else {
+              await client.query(
+                `UPDATE menu_items SET stock_qty = stock_qty - $1 WHERE id = $2`,
+                [delta, offerId]
+              );
+              offer.stock_qty -= delta;
+            }
+          } else {
+            // Возвращаем
+            await client.query(
+              `UPDATE menu_items SET stock_qty = stock_qty + $1 WHERE id = $2`,
+              [-delta, offerId]
+            );
+            offer.stock_qty += -delta;
+          }
+        }
+
+        if (nextQty > 0) nextQtyByOfferId.set(offerId, nextQty);
+      }
+
+      // фиксируем итоговые остатки после всех списаний/возвратов (для фронта)
+      const out: Record<number, number> = {};
+      for (const [id, offer] of offersMap.entries()) {
+        if (!offer) continue;
+        out[id] = Math.max(0, offer.stock_qty ?? 0);
+      }
+      stockByOfferId = out;
+    });
+  }
+
+  // Собираем "отфильтрованные" строки для дальнейшей сборки корзины/тоталов
+  const filtered: CartLineInput[] = [];
+  for (const [offerId, qty] of nextQtyByOfferId.entries()) {
+    const offer = offersMap.get(offerId);
+    if (!offer) continue;
+    const meta = inputMetaByOfferId.get(offerId);
+    filtered.push({
+      offerId,
+      quantity: qty,
+      comment: meta?.comment,
+      allowReplacement: meta?.allowReplacement,
+      isFavorite: meta?.isFavorite,
+    });
   }
 
   // Строим корзину из отфильтрованных товаров
@@ -266,10 +353,17 @@ export async function validateAndPersistCart(
 
   for (const line of filtered) {
     const offer = offersMap.get(line.offerId)!;
-    const unitPrice = offer.price;
+    const unitPrice =
+      typeof offer.price === "string" ? parseFloat(offer.price) : offer.price;
+    const discountPercent =
+      offer.discount_percent == null
+        ? null
+        : typeof offer.discount_percent === "string"
+        ? parseFloat(offer.discount_percent)
+        : offer.discount_percent;
     const discount =
-      offer.discount_percent && offer.discount_percent > 0
-        ? Math.round(unitPrice * (1 - offer.discount_percent / 100))
+      discountPercent != null && discountPercent > 0
+        ? Math.round(unitPrice * (1 - discountPercent / 100))
         : null;
     const finalPrice = discount ?? unitPrice;
     subtotal += unitPrice * line.quantity;
@@ -349,6 +443,7 @@ export async function validateAndPersistCart(
     changes,
     minOrderSum: MIN_ORDER_SUM,
     isMinOrderReached,
+    stockByOfferId,
   };
 }
 

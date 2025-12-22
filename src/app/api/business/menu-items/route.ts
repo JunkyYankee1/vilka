@@ -21,7 +21,8 @@ export async function GET(req: NextRequest) {
       image_url,
       ref_category_id,
       is_brand_anonymous,
-      is_active
+      is_active,
+      stock_qty
     FROM menu_items
     WHERE restaurant_id = $1
     ORDER BY created_at DESC
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
       imageUrl,
       refCategoryId,
       isBrandAnonymous,
+      stockQty,
     } = body;
 
     if (!restaurantId || !name || !price || !refCategoryId) {
@@ -58,8 +60,8 @@ export async function POST(req: NextRequest) {
       `
       INSERT INTO menu_items
         (restaurant_id, name, composition, price,
-         discount_percent, image_url, ref_category_id, is_brand_anonymous, is_active, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, NOW())
+         discount_percent, image_url, ref_category_id, is_brand_anonymous, is_active, created_at, stock_qty)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, NOW(), COALESCE($9::int, 100))
       RETURNING id
       `,
       [
@@ -71,6 +73,7 @@ export async function POST(req: NextRequest) {
         imageUrl || null,
         refCategoryId,
         !!isBrandAnonymous,
+        stockQty ?? null,
       ]
     );
 

@@ -1,5 +1,5 @@
 // lib/db.ts
-import { Pool, QueryResultRow } from "pg";
+import { Pool, QueryResultRow, type PoolClient } from "pg";
 
 if (!process.env.DATABASE_URL) {
   throw new Error(
@@ -44,6 +44,27 @@ export async function query<T extends QueryResultRow = QueryResultRow>(
           `Original error: ${error.message}`
         );
       }
+    }
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+export async function withTransaction<T>(
+  fn: (client: PoolClient) => Promise<T>
+): Promise<T> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch (rollbackError) {
+      console.error("Failed to rollback transaction", rollbackError);
     }
     throw error;
   } finally {

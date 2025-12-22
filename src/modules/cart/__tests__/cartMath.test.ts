@@ -13,6 +13,7 @@ const offers: Offer[] = [
     etaMinutes: undefined,
     imageUrl: null,
     menuItemName: "Item 1",
+    stock: 10,
   },
   {
     id: "2",
@@ -24,6 +25,7 @@ const offers: Offer[] = [
     etaMinutes: undefined,
     imageUrl: null,
     menuItemName: "Item 2",
+    stock: 10,
   },
 ];
 
