@@ -187,23 +187,24 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-end bg-black/40 px-4">
       <div
-        className={`auth-modal relative w-full max-w-md rounded-[32px] bg-white p-6 sm:p-8 shadow-vilka-soft ${
+        className={`auth-modal relative w-full max-w-md rounded-[32px] bg-white p-6 sm:p-8 shadow-vilka-soft dark:bg-slate-600 dark:shadow-xl ${
           closing ? "closing" : ""
         }`}
+        style={{ color: 'inherit' }}
       >
         {/* Верхняя панель */}
         <div className="mb-8 flex items-center justify-between">
           <button
             type="button"
             onClick={() => (step === "phone" ? closeModal() : setStep("phone"))}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-soft text-slate-700"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-slate-800 hover:bg-slate-200 dark:bg-slate-500 dark:text-white dark:hover:bg-slate-400 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={closeModal}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-soft text-slate-700"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-slate-800 hover:bg-slate-200 dark:bg-slate-500 dark:text-white dark:hover:bg-slate-400 transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -212,13 +213,14 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
         {step === "phone" ? (
           <>
             <div className="flex flex-col items-center gap-4">
-              <span className="text-sm text-slate-500">Телефон</span>
+              <span className="text-base font-bold text-black dark:text-white">Телефон</span>
               <input
                 type="tel"
                 value={phone}
                 onChange={handlePhoneChange}
                 inputMode="numeric"
-                className="w-full border-none bg-transparent text-center text-3xl font-semibold tracking-wide text-slate-900 outline-none"
+                className="w-full border-none bg-transparent text-center text-4xl font-bold tracking-wide text-black outline-none dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                placeholder="+7"
               />
             </div>
 
@@ -232,22 +234,23 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
                   }, 0);
                 }
               }}
-              className="vilka-btn-primary mt-10 flex w-full items-center justify-center rounded-full px-4 py-3 text-sm font-semibold"
+              disabled={!isPhoneComplete}
+              className="mt-10 flex w-full items-center justify-center rounded-full px-4 py-3.5 text-base font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-all bg-brand text-white hover:bg-brand-dark dark:bg-brand dark:hover:bg-brand-dark"
             >
               Получить код
             </button>
 
-            <p className="mt-6 text-center text-[11px] leading-relaxed text-slate-500">
+            <p className="mt-6 text-center text-base leading-relaxed text-black dark:text-white font-semibold">
               Продолжая авторизацию, вы соглашаетесь с{" "}
-              <span className="cursor-pointer text-slate-700 underline underline-offset-2">
+              <span className="cursor-pointer font-bold text-black underline underline-offset-2 hover:text-slate-700 dark:text-white dark:hover:text-slate-300">
                 политикой конфиденциальности
               </span>
               ,{" "}
-              <span className="cursor-pointer text-slate-700 underline underline-offset-2">
+              <span className="cursor-pointer font-bold text-black underline underline-offset-2 hover:text-slate-700 dark:text-white dark:hover:text-slate-300">
                 условиями сервиса
               </span>{" "}
               и{" "}
-              <span className="cursor-pointer text-slate-700 underline underline-offset-2">
+              <span className="cursor-pointer font-bold text-black underline underline-offset-2 hover:text-slate-700 dark:text-white dark:hover:text-slate-300">
                 условиями продажи товаров
               </span>
               .
@@ -256,10 +259,10 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
         ) : (
           <>
             <div className="flex flex-col items-center gap-6">
-              <span className="text-base font-semibold text-slate-900">
+              <span className="text-2xl font-bold text-black dark:text-white tracking-tight">
                 {phone}
               </span>
-              <div className="text-sm text-slate-500">Код из смс</div>
+              <div className="text-base font-bold text-black dark:text-white">Код из смс</div>
 
               <div className="flex gap-3">
                 {code.map((value, index) => (
@@ -275,24 +278,24 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
                       codeInputsRef.current[index] = el;
                     }}
                     className={[
-                      "h-12 w-10 rounded-2xl text-center text-lg font-semibold outline-none",
+                      "h-14 w-12 rounded-2xl text-center text-xl font-bold outline-none transition-all focus:ring-2 focus:ring-brand focus:ring-offset-2",
                       codeError
-                        ? "bg-red-50 text-red-500 border border-red-300"
-                        : "bg-slate-100 text-slate-900 border border-slate-200",
+                        ? "bg-red-50 text-red-600 border-2 border-red-400 dark:bg-red-900/40 dark:text-red-300 dark:border-red-500"
+                        : "bg-muted text-black border-2 border-slate-300 dark:bg-slate-500 dark:text-white dark:border-slate-400 focus:border-brand dark:focus:border-brand",
                     ].join(" ")}
                   />
                 ))}
               </div>
 
               {codeError && (
-                <div className="text-xs font-semibold text-red-500">
+                <div className="text-sm font-bold text-red-600 dark:text-red-400">
                   Не тот код.
                 </div>
               )}
 
-              <div className="text-xs text-slate-500">
+              <div className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 Получить новый можно через{" "}
-                <span>{formatTimer(timer)}</span>
+                <span className="font-bold text-black dark:text-white">{formatTimer(timer)}</span>
               </div>
             </div>
           </>

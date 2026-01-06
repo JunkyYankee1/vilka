@@ -36,10 +36,20 @@ export function CartProvider({ offers, children }: CartProviderProps) {
     hasLoadedRef.current = true;
 
     const loadCart = async () => {
+      // Skip if not in browser
+      if (typeof window === "undefined") {
+        setIsLoading(false);
+        return;
+      }
+
       try {
         console.log("[CartProvider] Loading cart from server");
         const res = await fetch("/api/cart/load", {
           method: "GET",
+        }).catch((fetchError) => {
+          // Handle network errors gracefully
+          console.error("[CartProvider] Fetch error loading cart (network/connection):", fetchError);
+          throw fetchError;
         });
 
         if (res.ok) {
@@ -74,7 +84,12 @@ export function CartProvider({ offers, children }: CartProviderProps) {
           console.error("[CartProvider] Failed to load cart:", res.status);
         }
       } catch (err) {
+        // Log error but don't break the app - cart will work in offline mode
         console.error("[CartProvider] Error loading cart:", err);
+        // If it's a network error, we can continue with empty cart
+        if (err instanceof TypeError && err.message === "Failed to fetch") {
+          console.warn("[CartProvider] Network error - continuing with empty cart");
+        }
       } finally {
         setIsLoading(false);
       }
@@ -85,6 +100,12 @@ export function CartProvider({ offers, children }: CartProviderProps) {
 
   const syncWithServer = useRef(async (quantities: CartState) => {
     console.log("[CartProvider] syncWithServer called with quantities:", quantities);
+    
+    // Skip sync if we're not in the browser
+    if (typeof window === "undefined") {
+      console.log("[CartProvider] Skipping sync - not in browser");
+      return;
+    }
     
     const items = Object.entries(quantities)
       .filter(([_, qty]) => qty > 0)
@@ -110,6 +131,10 @@ export function CartProvider({ offers, children }: CartProviderProps) {
           deliverySlot: null,
           items,
         }),
+      }).catch((fetchError) => {
+        // Handle network errors (e.g., server not ready, CORS, etc.)
+        console.error("[CartProvider] Fetch error (network/connection):", fetchError);
+        throw fetchError;
       });
 
       if (!res.ok) {

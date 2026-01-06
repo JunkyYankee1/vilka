@@ -4,24 +4,90 @@
 @tailwind utilities;
 
 :root {
-  --vilka-bg: #f5f5f5; /* светло-серый общий фон */
+  /* Light theme design tokens */
+  --vilka-bg: #F6F7FB; /* мягкий серый фон страницы */
+  --vilka-card: #FFFFFF; /* белый фон для карточек и поверхностей */
+  --vilka-muted: #F5F5F5; /* приглушённый фон для второстепенных элементов */
+  --vilka-border: rgba(226, 232, 240, 0.7); /* subtle border */
+  --vilka-foreground: #0F172A; /* основной текст - тёмный для лучшей читаемости */
+  --vilka-foreground-muted: #334155; /* второстепенный текст - более тёмный для читаемости */
   --vilka-radius-xl: 24px;
   --vilka-shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.07);
 }
 
-html,
-body {
+.dark {
+  /* Dark theme design tokens (unchanged) */
+  --vilka-bg: #0a0a0f; /* тёмный фон для тёмной темы */
+  --vilka-card: rgba(255, 255, 255, 0.1); /* glassy card background */
+  --vilka-muted: rgba(255, 255, 255, 0.05); /* glassy muted background */
+  --vilka-border: rgba(255, 255, 255, 0.1); /* glassy border */
+  --vilka-foreground: #F1F5F9; /* основной текст */
+  --vilka-foreground-muted: #CBD5E1; /* второстепенный текст */
+  --vilka-shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.5);
+}
+
+html {
   height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--vilka-bg);
 }
 
 body {
-  background: radial-gradient(
-    circle at top left,
-    #ffffff 0,
-    #f5f5f5 55%,
-    #f3f3f3 100%
-  );
-  color: #111827; /* почти чёрный текст */
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: var(--vilka-bg);
+  color: var(--vilka-foreground);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Ensure modals and overlays don't inherit body color incorrectly */
+.fixed.inset-0 {
+  color: initial; /* Reset to initial, don't inherit from body */
+}
+
+.fixed.inset-0 > * {
+  color: initial; /* Reset to initial, don't inherit from body */
+}
+
+/* Force auth modal and all its children to use explicit colors */
+.auth-modal,
+.auth-modal *:not(button.vilka-btn-primary):not(input[type="tel"]) {
+  color: inherit !important; /* Children inherit from .auth-modal's explicit color */
+}
+
+/* But allow specific overrides for buttons and inputs that need their own colors */
+.auth-modal input[type="tel"],
+.auth-modal input[type="text"] {
+  color: inherit !important;
+}
+
+.auth-modal button.vilka-btn-primary {
+  color: #ffffff !important; /* Button text should always be white */
+}
+
+/* Dark theme: purple/blue gradient background - only when .dark class is present */
+html.dark {
+  background: #0a0a0f; /* very dark blue-black base */
+}
+
+html.dark body {
+  background: 
+    radial-gradient(circle at 20% 30%, rgba(26, 10, 46, 0.8) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(15, 52, 96, 0.6) 0%, transparent 50%),
+    radial-gradient(circle at 50% 50%, rgba(22, 33, 62, 0.4) 0%, transparent 70%),
+    linear-gradient(
+      to bottom,
+      #0a0a0f 0%,
+      #1a0a2e 25%,
+      #16213e 50%,
+      #0f3460 75%,
+      #0a1628 100%
+    );
+  background-attachment: fixed;
+  color: #f1f5f9; /* светло-серый текст */
+  min-height: 100vh;
 }
 
 /* Скрыть скроллбары, но сохранить скролл */
@@ -40,10 +106,20 @@ body {
 .vilka-btn-primary {
   background-color: #16a34a; /* тот же цвет, что brand.DEFAULT */
   color: #ffffff;
+  transition: background-color 0.2s ease;
 }
 
 .vilka-btn-primary:hover {
   background-color: #15803d; /* тот же, что brand.dark */
+}
+
+.dark .vilka-btn-primary {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+
+.dark .vilka-btn-primary:hover {
+  background-color: #22c55e; /* немного светлее для тёмной темы */
 }
 
 .vilka-radio-primary {
@@ -130,10 +206,16 @@ body {
   right: 0;
   width: 350px; /* Размер модального окна */
   height: 100%;
-  background-color: white;
+  background-color: white !important; /* Force white background in light mode */
+  color: #0F172A !important; /* Force dark text for light mode - highest specificity */
   box-shadow: -4px 0px 15px rgba(0, 0, 0, 0.2);
   padding: 20px;
   z-index: 9999;
+}
+
+.dark .auth-modal {
+  background-color: rgb(71, 85, 105) !important; /* slate-600 */
+  color: #ffffff !important; /* Force white text for dark mode */
 }
 
 /* При закрытии окна */

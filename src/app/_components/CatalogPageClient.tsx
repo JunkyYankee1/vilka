@@ -11,6 +11,7 @@ import AnonymousOfferCard from "@/components/AnonymousOfferCard";
 import BrandedOfferCard from "@/components/BrandedOfferCard";
 import { MenuOptionButton } from "@/components/MenuOptionButton";
 import { QuantityControls } from "@/components/QuantityControls";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { Heart } from "lucide-react";
 import { CartProvider, useCart } from "@/modules/cart/cartContext";
 import { buildCatalogIndexes } from "@/modules/catalog/indexes";
@@ -257,8 +258,8 @@ function CatalogUI({
   };
 
   const breadcrumbLinkClasses =
-    "cursor-pointer text-slate-500 hover:text-slate-800 hover:underline underline-offset-4";
-  const breadcrumbActiveClasses = "font-medium text-slate-800";
+    "cursor-pointer text-foreground-muted hover:text-foreground hover:underline underline-offset-4";
+  const breadcrumbActiveClasses = "font-medium text-foreground";
 
   const renderOffersBlock = (baseItem: (typeof baseItems)[number], offers: typeof offersForItem) => {
     const anon = offers.find((o) => o.isAnonymous);
@@ -269,8 +270,8 @@ function CatalogUI({
         {/* Секция анонимных предложений */}
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-900">Анонимные предложения</span>
-            <span className="text-[11px] text-slate-500">Подберём самый дешёвый и ближайший вариант</span>
+            <span className="text-sm font-semibold text-foreground">Анонимные предложения</span>
+            <span className="text-[11px] text-foreground-muted">Подберём самый дешёвый и ближайший вариант</span>
           </div>
 
           {anon ? (
@@ -301,7 +302,7 @@ function CatalogUI({
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
+            <div className="rounded-2xl border border-dashed border-border bg-muted p-4 text-xs text-foreground-muted dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
               Для этой позиции пока нет анонимных предложений.
             </div>
           )}
@@ -310,12 +311,12 @@ function CatalogUI({
         {/* Секция брендовых предложений */}
         <div className="flex flex-col gap-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-900">Из заведений рядом</span>
-            <span className="text-[11px] text-slate-500">Заведения, которые показывают свой бренд</span>
+            <span className="text-sm font-semibold text-foreground">Из заведений рядом</span>
+            <span className="text-[11px] text-foreground-muted">Заведения, которые показывают свой бренд</span>
           </div>
 
           {branded.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
+            <div className="rounded-2xl border border-dashed border-border bg-muted p-4 text-xs text-foreground-muted dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
               Пока нет брендированных предложений для этой позиции.
             </div>
           ) : (
@@ -401,40 +402,41 @@ function CatalogUI({
   }, [isProfileDropdownOpen]);
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-surface-soft">
-      <header className="shrink-0 z-40 border-b border-slate-200/70 bg-white/80 backdrop-blur">
+    <main className="flex h-screen flex-col overflow-hidden bg-background transition-colors">
+      <header className="shrink-0 z-40 border-b border-border bg-card backdrop-blur dark:bg-white/10 dark:backdrop-blur-md">
         <div className="hidden md:block">
-          <div className="border-b border-slate-200/70 bg-white/80 backdrop-blur">
+          <div className="bg-card backdrop-blur dark:bg-white/10 dark:backdrop-blur-md">
             <div className="mx-auto flex w-full max-w-7xl items-center gap-4 px-6 py-3">
               <Link href="/" className="flex items-center gap-2 transition hover:opacity-80">
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
                   <span className="text-lg font-bold text-brand-dark">V</span>
                 </div>
                 <div className="flex flex-col leading-tight">
-                  <span className="text-lg font-semibold text-slate-900">Вилка</span>
-                  <span className="text-xs text-slate-600">Еда из ресторанов и пекарен</span>
+                  <span className="text-lg font-semibold text-foreground">Вилка</span>
+                  <span className="text-xs text-foreground-muted">Еда из ресторанов и пекарен</span>
                 </div>
               </Link>
 
               <div className="hidden flex-1 items-center md:flex">
-                <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
-                  <Search className="h-4 w-4 text-slate-500" />
+                <div className="flex w-full items-center gap-3 rounded-full bg-muted px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:shadow-lg">
+                  <Search className="h-4 w-4 text-foreground-muted" />
                   <input
                     type="text"
                     placeholder="Найти ресторан или блюдо..."
                     value={searchQuery}
                     onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+                    className="w-full bg-transparent text-base font-medium text-foreground outline-none placeholder:text-foreground-muted"
                   />
                 </div>
               </div>
 
               <div className="ml-auto flex items-center gap-3">
+                <ThemeToggle />
                 {user && (
                   <button
                     type="button"
                     onClick={() => setIsAssistantOpen(true)}
-                    className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900 md:flex"
+                    className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20 md:flex"
                   >
                     <MessageCircle className="h-3.5 w-3.5" />
                     <span>Чат‑бот</span>
@@ -444,7 +446,7 @@ function CatalogUI({
                   <button
                     type="button"
                     onClick={() => setIsAddressOpen(true)}
-                    className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900 md:flex"
+                    className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20 md:flex"
                   >
                     <MapPin className="h-3.5 w-3.5" />
                     <span className="max-w-[220px] truncate">{currentAddressLabel}</span>
@@ -456,7 +458,7 @@ function CatalogUI({
                     <button
                       type="button"
                       onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
-                      className="flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900"
+                      className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
                     >
                       <User className="h-3.5 w-3.5" />
                       <span>Профиль</span>
@@ -466,9 +468,9 @@ function CatalogUI({
                     </button>
 
                     {isProfileDropdownOpen && (
-                      <div className="absolute right-0 z-50 mt-2 w-48 rounded-2xl border border-slate-200 bg-white shadow-lg">
+                      <div className="absolute right-0 z-50 mt-2 w-48 rounded-2xl border border-border bg-card shadow-lg dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
                         <div className="p-2">
-                          <div className="px-3 py-2 text-xs text-slate-500">
+                          <div className="px-3 py-2 text-xs text-foreground-muted">
                             {user.phone}
                           </div>
                           <a
@@ -479,7 +481,7 @@ function CatalogUI({
                               e.stopPropagation();
                               window.location.assign("/api/auth/logout");
                             }}
-                            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-foreground hover:bg-muted dark:hover:bg-white/20"
                           >
                             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -494,7 +496,7 @@ function CatalogUI({
                   <button
                     type="button"
                     onClick={() => setIsAuthOpen(true)}
-                    className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900 md:flex"
+                    className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20 md:flex"
                   >
                     <User className="h-3.5 w-3.5" />
                     <span>Войти</span>
@@ -505,7 +507,7 @@ function CatalogUI({
                   <button
                     type="button"
                     onClick={() => setIsMiniCartOpen((v) => !v)}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-300"
+                    className="inline-flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-sm font-bold text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
                   >
                     <ShoppingBag className="h-4 w-4" />
                     <span>
@@ -514,12 +516,12 @@ function CatalogUI({
                   </button>
 
                   {isMiniCartOpen && (
-                    <div className="absolute right-0 z-40 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
-                      <div className="flex items-center justify-between text-sm font-semibold text-slate-900">
+                    <div className="absolute right-0 z-40 mt-2 w-80 rounded-2xl border border-border bg-white p-3 shadow-lg dark:border-white/20 dark:bg-slate-800">
+                      <div className="flex items-center justify-between text-base font-bold text-slate-900 dark:text-white">
                         <span>Корзина</span>
                         <button
                           type="button"
-                          className="text-xs text-slate-500 underline"
+                          className="text-xs font-medium text-slate-800 underline hover:text-slate-900 dark:text-white dark:hover:text-slate-200"
                           onClick={() => setIsMiniCartOpen(false)}
                         >
                           Закрыть
@@ -528,7 +530,7 @@ function CatalogUI({
 
                       <div className="mt-2 max-h-60 space-y-2 overflow-auto">
                         {entries.length === 0 ? (
-                          <div className="text-xs text-slate-500">В корзине пока пусто</div>
+                          <div className="text-xs font-medium text-slate-700 dark:text-white">В корзине пока пусто</div>
                         ) : (
                           entries.map(({ offer, quantity }) => {
                             const isSoldOut =
@@ -536,13 +538,13 @@ function CatalogUI({
                             return (
                             <div
                               key={offer.id}
-                              className="flex items-center justify-between rounded-xl bg-surface-soft px-2 py-2"
+                              className="flex items-center justify-between rounded-xl bg-muted px-2 py-2 dark:bg-white/10 dark:backdrop-blur-md"
                             >
                               <div className="min-w-0 flex-1">
-                                <div className="line-clamp-1 text-sm font-semibold text-slate-900">
+                                <div className="line-clamp-1 text-sm font-semibold text-slate-900 dark:text-white">
                                   {offer.menuItemName}
                                 </div>
-                                <div className="text-[11px] text-slate-500">
+                                <div className="text-[11px] font-medium text-slate-700 dark:text-white">
                                   {offer.price} ₽ × {quantity}
                                 </div>
                               </div>
@@ -563,7 +565,7 @@ function CatalogUI({
                         )}
                       </div>
 
-                      <div className="mt-3 flex items-center justify-between text-sm font-semibold text-slate-900">
+                      <div className="mt-3 flex items-center justify-between text-base font-bold text-slate-900 dark:text-white">
                         <span>Итого</span>
                         <span>{cartButtonLabel}</span>
                       </div>
@@ -576,7 +578,7 @@ function CatalogUI({
         </div>
 
         <div className="md:hidden">
-          <div className="mx-auto flex w-full max-w-7xl items-center gap-3 bg-white px-4 pt-3 pb-2">
+          <div className="mx-auto flex w-full max-w-7xl items-center gap-3 bg-background px-4 pt-3 pb-2">
             <Link href="/" className="flex items-center gap-2 transition hover:opacity-80">
               <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
                 <span className="text-base font-bold text-brand-dark">V</span>
@@ -587,7 +589,7 @@ function CatalogUI({
               <button
                 type="button"
                 onClick={() => setIsAddressOpen(true)}
-                className="flex flex-1 items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900"
+                className="flex flex-1 items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-medium text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
               >
                 <MapPin className="h-3.5 w-3.5" />
                 <span className="truncate">{currentAddressLabel}</span>
@@ -599,15 +601,15 @@ function CatalogUI({
                 <button
                   type="button"
                   onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
                 >
                   <User className="h-4 w-4" />
                 </button>
 
                 {isProfileDropdownOpen && (
-                  <div className="absolute right-0 z-50 mt-2 w-48 rounded-2xl border border-slate-200 bg-white shadow-lg">
+                  <div className="absolute right-0 z-50 mt-2 w-48 rounded-2xl border border-border bg-card shadow-lg dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
                     <div className="p-2">
-                      <div className="px-3 py-2 text-xs text-slate-500">
+                      <div className="px-3 py-2 text-xs text-foreground-muted">
                         {user.phone}
                       </div>
                       <a
@@ -617,7 +619,7 @@ function CatalogUI({
                           e.stopPropagation();
                           window.location.assign("/api/auth/logout");
                         }}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
                       >
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -632,7 +634,7 @@ function CatalogUI({
               <button
                 type="button"
                 onClick={() => setIsAuthOpen(true)}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50"
               >
                 <User className="h-4 w-4" />
               </button>
@@ -642,7 +644,7 @@ function CatalogUI({
               <button
                 type="button"
                 onClick={() => setIsAssistantOpen(true)}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900"
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50"
                 title="Чат‑бот"
               >
                 <MessageCircle className="h-4 w-4" />
@@ -657,13 +659,13 @@ function CatalogUI({
           <div className="sticky top-0 z-30 bg-white/95 backdrop-blur">
             <div className="mx-auto max-w-7xl px-4 pb-2">
               <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
-                <Search className="h-4 w-4 text-slate-500" />
+                <Search className="h-4 w-4 text-foreground-muted" />
                 <input
                   type="text"
                   placeholder="Найти ресторан или блюдо..."
                   value={searchQuery}
                   onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+                  className="w-full bg-transparent text-sm outline-none placeholder:text-foreground-muted"
                 />
               </div>
             </div>
@@ -704,11 +706,11 @@ function CatalogUI({
                 }).catch(() => {});
               }
             }}
-            className="hidden h-full w-full overflow-y-auto rounded-3xl bg-white shadow-vilka-soft md:block md:w-auto md:border md:border-slate-100"
+            className="hidden h-full w-full overflow-y-auto rounded-3xl bg-card shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:border-white/10 md:block md:w-auto md:border md:border-border"
           >
             {/* #endregion */}
-            <div className="rounded-3xl bg-white p-2 md:p-3">
-              <h2 className="hidden px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-600 lg:block">
+            <div className="rounded-3xl bg-card p-2 dark:bg-transparent md:p-3">
+              <h2 className="hidden px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted lg:block">
                 Категории
               </h2>
 
@@ -756,8 +758,8 @@ function CatalogUI({
                           "md:justify-center lg:justify-between",
                           "md:tooltip-icon-only",
                           isCatActive
-                            ? "bg-white text-slate-900 font-semibold"
-                            : "bg-white text-slate-800 hover:bg-surface-soft",
+                            ? "bg-card text-foreground font-bold dark:bg-white/20"
+                            : "bg-card text-foreground font-medium hover:bg-muted dark:bg-white/10 dark:hover:bg-white/20",
                         ].join(" ")}
                       >
                         <span
@@ -828,7 +830,7 @@ function CatalogUI({
                           >
                             <span className="truncate text-sm leading-tight">{cat.name}</span>
                             {cat.isPromo && (
-                              <span className="mt-0.5 truncate text-[10px] text-slate-500">
+                              <span className="mt-0.5 truncate text-[10px] text-foreground-muted">
                                 Акции и спецпредложения
                               </span>
                             )}
@@ -837,7 +839,7 @@ function CatalogUI({
 
                         <ChevronRight
                           className={[
-                            "hidden h-4 w-4 shrink-0 text-slate-400 transition-transform lg:block",
+                            "hidden h-4 w-4 shrink-0 text-foreground-muted transition-transform lg:block",
                             isExpanded ? "rotate-90" : "",
                           ].join(" ")}
                         />
@@ -857,8 +859,8 @@ function CatalogUI({
                                   className={[
                                     "flex w-full min-w-0 items-center justify-between rounded-2xl px-3 py-1.5 text-left text-xs transition",
                                     isSubActive
-                                      ? "bg-surface-soft text-slate-900 font-medium"
-                                      : "bg-transparent text-slate-700 hover:bg-surface-soft",
+                                      ? "bg-muted text-foreground font-semibold dark:bg-white/20"
+                                      : "bg-transparent text-foreground font-medium hover:bg-muted dark:hover:bg-white/10",
                                   ].join(" ")}
                                 >
                                   <span className="truncate">{sub.name}</span>
@@ -875,34 +877,34 @@ function CatalogUI({
             </div>
           </aside>
 
-          <section className="flex min-w-0 flex-1 min-h-0 flex-col gap-4 overflow-y-auto rounded-3xl border border-slate-100 bg-white p-4 shadow-vilka-soft">
+          <section className="flex min-w-0 flex-1 min-h-0 flex-col gap-4 overflow-y-auto rounded-3xl border border-border bg-card p-4 shadow-vilka-soft dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
             {/* Информационный блок */}
-            <div className="rounded-[var(--vilka-radius-xl)] border border-surface-soft bg-white p-5 sm:p-6">
+            <div className="rounded-[var(--vilka-radius-xl)] border border-border bg-card p-5 sm:p-6 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="max-w-md">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-surface-soft px-3 py-1 text-xs font-medium text-slate-800">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs font-medium text-foreground dark:bg-white/10">
                     <Clock className="h-3.5 w-3.5" />
                     <span>Горячая еда за 25–35 минут</span>
                   </div>
-                  <h1 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">
+                  <h1 className="mt-3 text-2xl font-bold text-foreground sm:text-3xl">
                     Рестораны и пекарни
                     <br />
                     в одной доставке.
                   </h1>
-                  <p className="mt-2 text-sm text-slate-600">
+                  <p className="mt-2 text-sm text-foreground-muted">
                     Заведения размещают свои блюда в Вилке и могут скрыть бренд. Вы выбираете — анонимное
                     предложение или конкретный ресторан рядом.
                   </p>
                 </div>
 
-                <div className="flex flex-col gap-2 rounded-3xl bg-surface-soft p-4 text-sm sm:w-64">
+                <div className="flex flex-col gap-2 rounded-3xl bg-muted p-4 text-sm sm:w-64 dark:bg-white/10 dark:backdrop-blur-md">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-600">Минимальная сумма заказа</span>
-                    <span className="text-sm font-semibold text-slate-900">от 0 ₽</span>
+                    <span className="text-xs text-foreground-muted">Минимальная сумма заказа</span>
+                    <span className="text-sm font-semibold text-foreground">от 0 ₽</span>
                   </div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-600">Доставка из заведений</span>
-                    <span className="text-sm font-semibold text-slate-900">от 0 ₽</span>
+                    <span className="text-xs text-foreground-muted">Доставка из заведений</span>
+                    <span className="text-sm font-semibold text-foreground">от 0 ₽</span>
                   </div>
                   <button className="mt-2 inline-flex items-center justify-center rounded-2xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
                     Посмотреть заведения
@@ -913,12 +915,12 @@ function CatalogUI({
               <div className="text-xs">
                 {/* Level 1: not clickable */}
                 {currentCategory?.name ? (
-                  <span className="text-slate-500">{currentCategory.name}</span>
+                  <span className="text-foreground-muted">{currentCategory.name}</span>
                 ) : (
-                  <span className="text-slate-500">Категория</span>
+                  <span className="text-foreground-muted">Категория</span>
                 )}
 
-                <span className="text-slate-500"> · </span>
+                <span className="text-foreground-muted"> · </span>
 
                 {/* Level 2: highlighted when 3rd level is not selected */}
                 {currentSubcategory?.id ? (
@@ -934,16 +936,16 @@ function CatalogUI({
                     <span className={breadcrumbActiveClasses}>{currentSubcategory.name}</span>
                   )
                 ) : (
-                  <span className={activeItemId ? "text-slate-500" : breadcrumbActiveClasses}>Подкатегория</span>
+                  <span className={activeItemId ? "text-foreground-muted" : breadcrumbActiveClasses}>Подкатегория</span>
                 )}
 
                 {/* Level 3: show only when selected */}
                 {currentItem?.id && (
                   <>
-                    <span className="text-slate-500"> · </span>
+                    <span className="text-foreground-muted"> · </span>
                     <button
                       type="button"
-                      className="font-medium text-slate-800 hover:underline underline-offset-4"
+                      className="font-medium text-foreground-muted hover:underline underline-offset-4"
                       onClick={() => handleItemClick(currentItem.id)}
                     >
                       {currentItem.name}
@@ -967,7 +969,7 @@ function CatalogUI({
                   ))}
                 </div>
               ) : (
-                <div className="text-xs text-slate-500">Загрузка блюд…</div>
+                <div className="text-xs text-foreground-muted">Загрузка блюд…</div>
               )}
 
               {activeItemId && currentItem ? (
@@ -980,7 +982,7 @@ function CatalogUI({
 
                     return (
                       <div key={item.id} className="flex flex-col gap-6">
-                        <h2 className="text-4xl font-bold text-slate-900">{item.name}</h2>
+                        <h2 className="text-4xl font-bold text-foreground">{item.name}</h2>
                         {renderOffersBlock(item, offers)}
                       </div>
                     );
@@ -991,15 +993,15 @@ function CatalogUI({
 
           <aside className="hidden h-full w-full shrink-0 overflow-y-auto lg:block">
             <div className="flex h-full flex-col gap-3 pb-6">
-              <div className="flex flex-1 flex-col rounded-3xl border border-slate-100 bg-white/95 p-4 shadow-vilka-soft">
-                <h2 className="text-base font-semibold text-slate-900">Доставка 15 минут</h2>
+              <div className="flex flex-1 flex-col rounded-3xl border border-border bg-card p-4 shadow-vilka-soft dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
+                <h2 className="text-base font-semibold text-foreground">Доставка 15 минут</h2>
 
                 <div className="mt-2">
-                  <label className="text-xs font-semibold text-slate-700">Время доставки</label>
+                  <label className="text-xs font-semibold text-foreground-muted">Время доставки</label>
                   <select
                     value={deliverySlot}
                     onChange={(e: { target: { value: string } }) => setDeliverySlot(e.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none hover:border-slate-300 focus:border-brand"
+                    className="mt-1 w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none hover:border-slate-300 focus:border-brand dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:border-white/20"
                   >
                     <option value="asap">Как можно скорее</option>
                     <option value="by-1930">К 19:30</option>
@@ -1010,7 +1012,7 @@ function CatalogUI({
                 </div>
 
                 {totals.totalCount === 0 ? (
-                  <div className="mt-3 text-xs text-slate-600">
+                  <div className="mt-3 text-xs text-foreground-muted">
                     В вашей корзине пока пусто. Добавляйте блюда с карточек справа, чтобы увидеть итог по заказу.
                   </div>
                 ) : (
@@ -1023,9 +1025,9 @@ function CatalogUI({
                         const noteState = lineNotes[offer.id] ?? { comment: "", allowReplacement: true };
 
                         return (
-                          <div key={offer.id} className="flex flex-col gap-2 rounded-2xl border border-slate-100 p-3">
+                          <div key={offer.id} className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
                             <div className="flex items-start gap-3">
-                              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-surface-soft">
+                              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-muted dark:bg-white/10">
                                 {offer.imageUrl ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
@@ -1034,24 +1036,24 @@ function CatalogUI({
                                     className="h-full w-full object-cover"
                                   />
                                 ) : (
-                                  <span className="px-2 text-center text-[11px] font-medium text-slate-500">
+                                  <span className="px-2 text-center text-[11px] font-medium text-foreground-muted">
                                     пока ещё нет фото!
                                   </span>
                                 )}
                               </div>
 
                               <div className="flex min-w-0 flex-1 flex-col">
-                                <div className="line-clamp-2 text-sm font-semibold text-slate-900">
+                                <div className="line-clamp-2 text-sm font-semibold text-foreground">
                                   {offer.menuItemName}
                                 </div>
 
                                 {base?.description && (
-                                  <div className="mt-0.5 text-[11px] text-slate-500">{base.description}</div>
+                                  <div className="mt-0.5 text-[11px] text-foreground-muted">{base.description}</div>
                                 )}
 
                                 <button
                                   type="button"
-                                  className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 active:scale-95 transition-transform transform-gpu"
+                                  className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-border bg-card px-2 py-1 text-[11px] font-medium text-foreground-muted hover:border-slate-300 hover:bg-muted active:scale-95 transition-transform transform-gpu dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
                                   onClick={async () => {
                                     const next = !lineFavorites[offer.id];
                                     setLineFavorites((prev) => ({ ...prev, [offer.id]: next }));
@@ -1079,7 +1081,7 @@ function CatalogUI({
                                   <span>{lineFavorites[offer.id] ? "В избранном" : "В избранное"}</span>
                                 </button>
 
-                                <div className="mt-2 flex items-center justify-between rounded-full bg-surface-soft px-3 py-1.5">
+                                <div className="mt-2 flex items-center justify-between rounded-full bg-muted px-3 py-1.5 dark:bg-white/10 dark:backdrop-blur-md">
                                   {/* Анимация нажатия на +/- */}
                                   <div className="[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95">
                                     <QuantityControls
@@ -1093,16 +1095,16 @@ function CatalogUI({
 
                                   <div className="flex items-center gap-2">
                                     {lineOldPrice && (
-                                      <span className="text-xs text-slate-400 line-through">{lineOldPrice} ₽</span>
+                                      <span className="text-xs text-foreground-muted line-through opacity-60">{lineOldPrice} ₽</span>
                                     )}
-                                    <span className="text-sm font-semibold text-slate-900">{lineTotal} ₽</span>
+                                    <span className="text-sm font-semibold text-foreground">{lineTotal} ₽</span>
                                   </div>
                                 </div>
                               </div>
                             </div>
 
-                            <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                              <label className="text-[11px] font-semibold text-slate-700">Комментарий для кухни</label>
+                            <div className="flex flex-col gap-2 rounded-2xl border border-border bg-muted px-3 py-2 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
+                              <label className="text-[11px] font-semibold text-foreground-muted">Комментарий для кухни</label>
                               <textarea
                                 value={noteState.comment}
                                 onChange={(e: { target: { value: string } }) =>
@@ -1112,10 +1114,10 @@ function CatalogUI({
                                   }))
                                 }
                                 rows={2}
-                                className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900 outline-none hover:border-slate-300 focus:border-brand"
+                                className="w-full rounded-xl border border-border bg-card px-2 py-1 text-sm text-foreground outline-none hover:border-slate-300 focus:border-brand dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:border-white/20"
                                 placeholder="Без лука, соус отдельно..."
                               />
-                              <label className="inline-flex items-center gap-2 text-[12px] text-slate-700">
+                              <label className="inline-flex items-center gap-2 text-[12px] text-foreground-muted">
                                 <input
                                   type="checkbox"
                                   checked={noteState.allowReplacement}
@@ -1136,9 +1138,9 @@ function CatalogUI({
                       })}
                     </div>
 
-                    <div className="mt-4 border-t border-slate-100 pt-3">
-                      <div className="text-center text-xs text-slate-500">Итого</div>
-                      <div className="text-center text-2xl font-semibold leading-tight text-slate-900">
+                    <div className="mt-4 border-t border-border pt-3">
+                      <div className="text-center text-xs text-foreground-muted">Итого</div>
+                      <div className="text-center text-2xl font-semibold leading-tight text-foreground">
                         {totals.totalPrice} ₽
                       </div>
                       <button className="mt-3 inline-flex w-full items-center justify-center rounded-full bg-brand px-4 py-3 text-sm font-semibold text-white shadow-lg shadow-brand/30 hover:bg-brand-dark active:scale-[0.98] transition-transform transform-gpu">
@@ -1150,14 +1152,14 @@ function CatalogUI({
               </div>
 
               {totals.totalCount > 0 && (
-                <div className="rounded-3xl bg-white/90 p-3 shadow-vilka-soft">
+                <div className="rounded-3xl bg-card p-3 shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <input
                         id="save-cart-name"
                         type="text"
                         placeholder="Например: Обед в офис"
-                        className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                        className="w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none placeholder:text-foreground-muted focus:border-brand dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md"
                         onChange={() => {}}
                       />
                       <button
@@ -1191,7 +1193,7 @@ function CatalogUI({
                       />
                       <button
                         type="button"
-                        className="rounded-2xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-800 hover:border-slate-300 active:scale-95 transition-transform transform-gpu"
+                        className="rounded-2xl border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground hover:border-slate-300 hover:bg-slate-50 active:scale-95 transition-transform transform-gpu"
                         onClick={async () => {
                           const input = document.getElementById("apply-saved-id") as HTMLInputElement | null;
                           const id = input?.value;
@@ -1214,28 +1216,28 @@ function CatalogUI({
                 </div>
               )}
 
-              <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600 shadow-vilka-soft">
-                <p className="font-semibold text-slate-800">Вилка пока не везде</p>
-                <p className="mt-1">Укажите адрес, чтобы увидеть заведения, которые доставляют именно к вам.</p>
+              <div className="rounded-3xl border border-border bg-muted p-3 text-xs text-foreground-muted shadow-vilka-soft">
+                <p className="font-semibold text-foreground">Вилка пока не везде</p>
+                <p className="mt-1 text-foreground-muted">Укажите адрес, чтобы увидеть заведения, которые доставляют именно к вам.</p>
               </div>
             </div>
           </aside>
         </div>
       </section>
 
-      <footer className="shrink-0 border-t border-slate-200/70 bg-white/80">
-        <div className="flex w-full flex-col gap-2 px-6 py-3 text-xs text-slate-600 md:flex-row md:items-center md:justify-between">
+      <footer className="shrink-0 border-t border-border bg-card/80 backdrop-blur dark:bg-white/10 dark:backdrop-blur-md">
+        <div className="flex w-full flex-col gap-2 px-6 py-3 text-xs text-foreground-muted md:flex-row md:items-center md:justify-between">
           <span>© {new Date().getFullYear()} Вилка. Доставка еды из ресторанов и пекарен.</span>
           <div className="flex flex-wrap gap-3">
-            <button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu">
+            <button className="rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-foreground hover:border-slate-300 hover:bg-slate-50 active:scale-95 transition-transform transform-gpu">
               Вопросы и поддержка
             </button>
-            <button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu">
+            <button className="rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-foreground hover:border-slate-300 hover:bg-slate-50 active:scale-95 transition-transform transform-gpu">
               Условия сервиса
             </button>
             <a
               href="/business"
-              className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu"
+              className="rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-foreground hover:border-slate-300 hover:bg-slate-50 active:scale-95 transition-transform transform-gpu"
             >
               Для бизнеса
             </a>

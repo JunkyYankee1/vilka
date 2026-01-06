@@ -46,7 +46,7 @@ const BrandedOfferCard = ({
   return (
     <article 
       onClick={handleCardClick}
-      className={`flex h-full flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-all duration-150 hover:shadow-md ${hasHandlers && quantity === 0 ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+      className={`flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-150 hover:shadow-md dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md ${hasHandlers && quantity === 0 ? 'cursor-pointer active:scale-[0.98]' : ''}`}
     >
       {/* Изображение с оверлеем */}
       <div className="relative h-40 w-full bg-surface-soft">
@@ -61,7 +61,7 @@ const BrandedOfferCard = ({
             style={{ color: "transparent" }}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-slate-100 text-[12px] font-medium text-slate-500">
+          <div className="flex h-full w-full items-center justify-center bg-muted text-[12px] font-medium text-foreground-muted">
             пока ещё нет фото!
           </div>
         )}
@@ -101,16 +101,15 @@ const BrandedOfferCard = ({
         <div className="mb-3 flex-1">
           {/* Название */}
           <div
-            className="line-clamp-2 text-sm font-semibold leading-snug"
+            className="line-clamp-2 text-base font-semibold leading-snug text-foreground"
             title={itemName}
-            style={{ color: "rgb(89, 89, 89)" }}
           >
             {itemName}
           </div>
 
           {/* Спецификация: вес */}
           {subtitle && (
-            <div className="mt-1.5 text-sm font-semibold" style={{ color: "rgb(166, 166, 166)" }}>
+            <div className="mt-1.5 text-sm font-medium text-foreground-muted">
               {subtitle}
             </div>
           )}

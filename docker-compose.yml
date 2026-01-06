@@ -15,6 +15,12 @@ services:
       - ./db/migrations:/db/migrations:ro
     networks:
       - kasashka_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kasashka -d kasashka_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   redis:
     image: redis:7-alpine
@@ -26,6 +32,12 @@ services:
       - redis_data:/data
     networks:
       - kasashka_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   minio:
     image: minio/minio:latest
@@ -47,7 +59,8 @@ services:
     image: minio/mc:latest
     container_name: kasashka_minio_init
     depends_on:
-      - minio
+      minio:
+        condition: service_started
     entrypoint:
       - /bin/sh
       - -c
@@ -92,15 +105,28 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadminpassword
       MINIO_BUCKET: media
+      # Ollama (LLM inference)
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
     depends_on:
-      - postgres
-      - redis
-      - minio
-      - minio_init
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      minio_init:
+        condition: service_completed_successfully
     ports:
       - "3000:3000"
     networks:
       - kasashka_net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
   nginx:
     image: nginx:alpine
@@ -145,7 +171,8 @@ services:
     image: ollama/ollama:latest
     container_name: kasashka_ollama_init
     depends_on:
-      - ollama
+      ollama:
+        condition: service_started
     entrypoint:
       - /bin/sh
       - -c

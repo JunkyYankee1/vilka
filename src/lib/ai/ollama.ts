@@ -21,26 +21,40 @@ export async function ollamaChat(messages: OllamaMessage[]) {
   const baseUrl = getOllamaBaseUrl();
   const model = getOllamaModel();
 
-  const res = await fetch(`${baseUrl}/api/chat`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      stream: false,
-      messages,
-      // Reduce context to lower memory pressure (can be overridden later if needed)
-      options: { num_ctx: 2048 },
-    }),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`Ollama error ${res.status}: ${text}`);
+  try {
+    const res = await fetch(`${baseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        stream: false,
+        messages,
+        // Reduce context to lower memory pressure (can be overridden later if needed)
+        options: { num_ctx: 2048 },
+      }),
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Ollama error ${res.status}: ${text}`);
+    }
+
+    const data = (await res.json()) as OllamaChatResponse;
+    const content = data.message?.content ?? data.response ?? "";
+    return { content };
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === "AbortError") {
+      throw new Error("Request timeout: модель не ответила за 30 секунд");
+    }
+    throw error;
   }
-
-  const data = (await res.json()) as OllamaChatResponse;
-  const content = data.message?.content ?? data.response ?? "";
-  return { content };
 }
 
 

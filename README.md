@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Вилка — быстрая доставка еды и продуктов
 
-## Getting Started
+Next.js приложение для онлайн-сервиса быстрой доставки еды и продуктов.
 
-First, run the development server:
+## 🚀 Quick Start (Fully Containerized)
+
+**Prerequisites:** Docker and Docker Compose (that's all!)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Clone the repository
+git clone <repository-url>
+cd vilka
+
+# Start everything
+docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+**Access the app:** http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+That's it! The app will:
+- ✅ Auto-initialize the database with schema and seed data
+- ✅ Start all required services (PostgreSQL, Redis, MinIO, Ollama)
+- ✅ Install all dependencies inside Docker
+- ✅ Start the Next.js development server
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+See [README.setup.md](./README.setup.md) for detailed setup instructions and troubleshooting.
 
-## Learn More
+## 📚 Documentation
 
-To learn more about Next.js, take a look at the following resources:
+- **[README.setup.md](./README.setup.md)** - Setup and troubleshooting guide
+- **[README.seeding.md](./README.seeding.md)** - Database seeding documentation
+- **[README.smart-cart.md](./README.smart-cart.md)** - Smart cart system documentation
+- **[README.ai.md](./README.ai.md)** - AI assistant (LLM) documentation
+- **[README.zabbix.md](./README.zabbix.md)** - Monitoring setup
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 🛠️ Tech Stack
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Framework**: Next.js 16 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS 4
+- **Database**: PostgreSQL 15
+- **Cache**: Redis 7
+- **Storage**: MinIO (S3-compatible)
+- **AI**: Ollama (LLaMA 3.x)
+- **Containerization**: Docker & Docker Compose
 
-## Deploy on Vercel
+## 📦 Services
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+When running `docker compose up`, the following services are available:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **App**: http://localhost:3000 - Main Next.js application
+- **PostgreSQL**: localhost:5432 - Database
+- **Redis**: localhost:6379 - Cache
+- **MinIO**: localhost:9000 (API), localhost:9001 (Console) - Object storage
+- **Ollama**: localhost:11434 - LLM inference server
+- **Dozzle**: http://localhost:9999 - Docker logs viewer
+- **Zabbix**: http://localhost:8080 - Monitoring (optional)
+
+## 🔧 Development
+
+See [README.setup.md](./README.setup.md) for local development setup (running app outside Docker while using Docker for services).

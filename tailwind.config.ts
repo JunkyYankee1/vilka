@@ -1,6 +1,7 @@
 import type { Config } from "tailwindcss";
 
 const config: Config = {
+  darkMode: "class",
   content: [
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
@@ -14,10 +15,27 @@ const config: Config = {
           DEFAULT: "#16a34a", // зелёный (типа green-600)
           dark: "#15803d",    // тёмно-зелёный
         },
-        // бело-серая поверхность
+        // Design tokens for light/dark themes
+        background: {
+          DEFAULT: "var(--vilka-bg)",
+        },
+        card: {
+          DEFAULT: "var(--vilka-card)",
+        },
+        muted: {
+          DEFAULT: "var(--vilka-muted)",
+        },
+        border: {
+          DEFAULT: "var(--vilka-border)",
+        },
+        foreground: {
+          DEFAULT: "var(--vilka-foreground)",
+          muted: "var(--vilka-foreground-muted)",
+        },
+        // Legacy surface tokens (for backward compatibility)
         surface: {
-          DEFAULT: "#ffffff", // карточки, блоки
-          soft: "#f5f5f5",    // общий фон, «подложка»
+          DEFAULT: "var(--vilka-card)", // карточки, блоки
+          soft: "var(--vilka-muted)",    // общий фон, «подложка»
         },
       },
       boxShadow: {
