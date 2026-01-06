@@ -46,7 +46,7 @@ const BrandedOfferCard = ({
   return (
     <article 
       onClick={handleCardClick}
-      className={`flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-150 hover:shadow-md dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md ${hasHandlers && quantity === 0 ? 'cursor-pointer active:scale-[0.98]' : ''}`}
+      className={`flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-150 hover:shadow-md hover:border-slate-300 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md ${hasHandlers && quantity === 0 ? 'cursor-pointer active:scale-[0.98]' : ''}`}
     >
       {/* Изображение с оверлеем */}
       <div className="relative h-40 w-full bg-surface-soft">
@@ -61,7 +61,7 @@ const BrandedOfferCard = ({
             style={{ color: "transparent" }}
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-muted text-[12px] font-medium text-foreground-muted">
+          <div className="flex h-full w-full items-center justify-center bg-skeleton-base border border-border rounded-2xl text-[12px] font-medium text-foreground-muted shadow-sm dark:bg-white/10 dark:border-white/10">
             пока ещё нет фото!
           </div>
         )}

@@ -583,7 +583,7 @@ const AddressModalContent = ({
           <button
             type="button"
             onClick={() => (step === "list" ? onClose() : setStep("list"))}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-slate-700 dark:bg-slate-600 dark:text-slate-100"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white border border-border text-slate-700 dark:bg-slate-600 dark:text-slate-100 dark:border-white/10"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -593,7 +593,7 @@ const AddressModalContent = ({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-slate-700 dark:bg-slate-600 dark:text-slate-100"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white border border-border text-slate-700 dark:bg-slate-600 dark:text-slate-100 dark:border-white/10"
           >
             <X className="h-4 w-4" />
           </button>
@@ -617,7 +617,7 @@ const AddressModalContent = ({
                     <div
                       key={addr.id}
                       className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 transition ${
-                        selected ? "bg-muted dark:bg-slate-600" : ""
+                        selected ? "bg-hover dark:bg-slate-600" : ""
                       }`}
                     >
                       <button
@@ -700,7 +700,7 @@ const AddressModalContent = ({
                           setTimeout(() => setShowCitySuggestions(false), 200);
                         }}
                         placeholder="Введите город"
-                        className="mt-1 w-full rounded-2xl bg-muted px-3 py-2 text-sm text-slate-900 dark:bg-slate-600 dark:text-white"
+                        className="mt-1 w-full rounded-2xl bg-white border border-border px-3 py-2 text-sm text-slate-900 dark:bg-slate-600 dark:text-white dark:border-white/10"
                         autoFocus
                       />
                     </div>
@@ -755,7 +755,7 @@ const AddressModalContent = ({
                           setTimeout(() => setShowStreetSuggestions(false), 200);
                         }}
                         placeholder="Введите улицу и дом"
-                        className="mt-1 w-full rounded-2xl bg-muted px-3 py-2 text-sm text-slate-900 dark:bg-slate-600 dark:text-white"
+                        className="mt-1 w-full rounded-2xl bg-white border border-border px-3 py-2 text-sm text-slate-900 dark:bg-slate-600 dark:text-white dark:border-white/10"
                         autoFocus
                       />
                     </div>

@@ -4,41 +4,78 @@
 @tailwind utilities;
 
 :root {
-  /* Light theme design tokens */
-  --vilka-bg: #F5F5F5; /* фон страницы (как bg-surface-soft) */
-  --vilka-card: #FFFFFF; /* белый фон для карточек и поверхностей */
-  --vilka-muted: #F5F5F5; /* приглушённый фон для второстепенных элементов */
-  --vilka-border: rgba(226, 232, 240, 0.7); /* subtle border */
-  --vilka-foreground: #0F172A; /* основной текст - тёмный для лучшей читаемости */
-  --vilka-foreground-muted: #334155; /* второстепенный текст - более тёмный для читаемости */
-  --vilka-radius-xl: 24px;
-  --vilka-shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.07);
+  /* Light theme design tokens (shadcn-compatible) */
+  --background: 241 245 249; /* slate-100 - slightly darker off-white page background for better contrast */
+  --card: 255 255 255; /* white - card/surface background */
+  --muted: 241 245 249; /* slate-100 - muted background for secondary elements */
+  --border: 203 213 225; /* slate-300 - more visible border */
+  --input: 203 213 225; /* slate-300 - input borders */
+  --ring: 148 163 184; /* slate-300 - focus ring */
+  --foreground: 15 23 42; /* slate-900 - primary text */
+  --foreground-muted: 71 85 113; /* slate-600 - secondary text */
+  --hover: 226 232 240; /* slate-200 - hover state (slightly darker than muted) */
+  --skeleton-base: 226 232 240; /* slate-200 - skeleton base */
+  --skeleton-shimmer: 203 213 225; /* slate-300 - skeleton highlight */
+  --radius-xl: 24px;
+  --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.07);
+  
+  /* Legacy vilka vars for backward compatibility */
+  --vilka-bg: rgb(var(--background));
+  --vilka-card: rgb(var(--card));
+  --vilka-muted: rgb(var(--muted));
+  --vilka-border: rgba(var(--border), 0.8);
+  --vilka-foreground: rgb(var(--foreground));
+  --vilka-foreground-muted: rgb(var(--foreground-muted));
+  --vilka-hover: rgb(var(--hover));
+  --vilka-skeleton-base: rgba(var(--skeleton-base), 0.6);
+  --vilka-skeleton-shimmer: rgba(var(--skeleton-shimmer), 0.6);
+  --vilka-focus-ring: rgba(var(--ring), 0.3);
+  --vilka-radius-xl: var(--radius-xl);
+  --vilka-shadow-soft: var(--shadow-soft);
 }
 
 .dark {
-  /* Dark theme design tokens (unchanged) */
-  --vilka-bg: #0a0a0f; /* тёмный фон для тёмной темы */
-  --vilka-card: rgba(255, 255, 255, 0.1); /* glassy card background */
-  --vilka-muted: rgba(255, 255, 255, 0.05); /* glassy muted background */
-  --vilka-border: rgba(255, 255, 255, 0.1); /* glassy border */
-  --vilka-foreground: #F1F5F9; /* основной текст */
-  --vilka-foreground-muted: #CBD5E1; /* второстепенный текст */
-  --vilka-shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.5);
+  /* Dark theme design tokens (shadcn-compatible) */
+  --background: 10 10 15; /* very dark blue-black base */
+  --card: 255 255 255; /* white for rgba calculation */
+  --muted: 255 255 255; /* white for rgba calculation */
+  --border: 255 255 255; /* white for rgba calculation */
+  --input: 255 255 255; /* white for rgba calculation */
+  --ring: 255 255 255; /* white for rgba calculation */
+  --foreground: 241 245 249; /* slate-50 - primary text */
+  --foreground-muted: 203 213 225; /* slate-300 - secondary text */
+  --hover: 255 255 255; /* white for rgba calculation */
+  --skeleton-base: 255 255 255; /* white for rgba calculation */
+  --skeleton-shimmer: 255 255 255; /* white for rgba calculation */
+  --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.5);
+  
+  /* Legacy vilka vars for backward compatibility */
+  --vilka-bg: rgb(var(--background));
+  --vilka-card: rgba(var(--card), 0.1);
+  --vilka-muted: rgba(var(--muted), 0.05);
+  --vilka-border: rgba(var(--border), 0.1);
+  --vilka-foreground: rgb(var(--foreground));
+  --vilka-foreground-muted: rgb(var(--foreground-muted));
+  --vilka-hover: rgba(var(--hover), 0.1);
+  --vilka-skeleton-base: rgba(var(--skeleton-base), 0.1);
+  --vilka-skeleton-shimmer: rgba(var(--skeleton-shimmer), 0.15);
+  --vilka-focus-ring: rgba(var(--ring), 0.2);
+  --vilka-shadow-soft: var(--shadow-soft);
 }
 
 html {
   height: 100%;
   margin: 0;
   padding: 0;
-  background: var(--vilka-bg);
+  background: rgb(var(--background));
 }
 
 body {
   height: 100%;
   margin: 0;
   padding: 0;
-  background: var(--vilka-bg);
-  color: var(--vilka-foreground);
+  background: rgb(var(--background));
+  color: rgb(var(--foreground));
   transition: background-color 0.3s ease, color 0.3s ease;
 }
 
@@ -86,7 +123,7 @@ html.dark body {
       #0a1628 100%
     );
   background-attachment: fixed;
-  color: #f1f5f9; /* светло-серый текст */
+  color: rgb(var(--foreground)); /* светло-серый текст */
   min-height: 100vh;
 }
 
@@ -230,4 +267,40 @@ body {
 
 .chat-modal.closing {
   animation: chatModalOut 0.18s ease-in forwards;
+}
+
+/* Skeleton loading animation */
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.skeleton {
+  background: rgb(var(--skeleton-base) / 0.6);
+  background-image: linear-gradient(
+    90deg,
+    rgb(var(--skeleton-base) / 0.6) 0%,
+    rgb(var(--skeleton-shimmer) / 0.6) 50%,
+    rgb(var(--skeleton-base) / 0.6) 100%
+  );
+  background-size: 1000px 100%;
+  animation: skeleton-shimmer 2s infinite;
+  border: 1px solid rgb(var(--border));
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+
+.dark .skeleton {
+  background: rgba(var(--skeleton-base), 0.1);
+  background-image: linear-gradient(
+    90deg,
+    rgba(var(--skeleton-base), 0.1) 0%,
+    rgba(var(--skeleton-shimmer), 0.15) 50%,
+    rgba(var(--skeleton-base), 0.1) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: none;
 }

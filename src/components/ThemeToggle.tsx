@@ -16,7 +16,7 @@ export function ThemeToggle() {
   if (!mounted) {
     return (
       <button
-        className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-foreground transition-colors hover:bg-slate-200 dark:bg-white/10 dark:hover:bg-white/20"
+        className="flex h-9 w-9 items-center justify-center rounded-full bg-card border border-border text-foreground transition-colors shadow-sm hover:bg-hover dark:bg-white/10 dark:hover:bg-white/20 dark:border-white/10"
         aria-label="Переключить тему"
         disabled
       >
@@ -34,7 +34,7 @@ export function ThemeToggle() {
         console.log("[ThemeToggle] Switching theme from", theme, "to", newTheme);
         setTheme(newTheme);
       }}
-      className="flex h-9 w-9 items-center justify-center rounded-full bg-surface-soft text-slate-700 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+      className="flex h-9 w-9 items-center justify-center rounded-full bg-card border border-border text-slate-700 transition-colors shadow-sm hover:bg-hover dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700 dark:border-white/10"
       aria-label={isDark ? "Переключить на светлую тему" : "Переключить на тёмную тему"}
       title={isDark ? "Тёмная тема активна. Нажмите для переключения на светлую" : "Светлая тема активна. Нажмите для переключения на тёмную"}
     >

@@ -277,14 +277,14 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
           <button
             type="button"
             onClick={() => (step === "phone" ? closeModal() : setStep("phone"))}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-slate-800 hover:bg-slate-200 dark:bg-slate-500 dark:text-white dark:hover:bg-slate-400 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white border border-border text-slate-800 hover:bg-hover dark:bg-slate-500 dark:text-white dark:hover:bg-slate-400 dark:border-white/10 transition-colors"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
           <button
             type="button"
             onClick={closeModal}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-slate-800 hover:bg-slate-200 dark:bg-slate-500 dark:text-white dark:hover:bg-slate-400 transition-colors"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white border border-border text-slate-800 hover:bg-hover dark:bg-slate-500 dark:text-white dark:hover:bg-slate-400 dark:border-white/10 transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -373,7 +373,7 @@ export default function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps
                       "h-14 w-12 rounded-2xl text-center text-xl font-bold outline-none transition-all focus:ring-2 focus:ring-brand focus:ring-offset-2",
                       codeError
                         ? "bg-red-50 text-red-600 border-2 border-red-400 dark:bg-red-900/40 dark:text-red-300 dark:border-red-500"
-                        : "bg-muted text-black border-2 border-slate-300 dark:bg-slate-500 dark:text-white dark:border-slate-400 focus:border-brand dark:focus:border-brand",
+                        : "bg-white text-black border-2 border-slate-300 hover:bg-hover dark:bg-slate-500 dark:text-white dark:border-slate-400 focus:border-brand focus:ring-2 focus:ring-focus-ring dark:focus:border-brand",
                     ].join(" ")}
                   />
                 ))}

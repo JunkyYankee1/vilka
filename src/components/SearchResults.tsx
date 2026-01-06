@@ -22,6 +22,8 @@ type SearchResult = {
 type SearchResultsProps = {
   results: SearchResult[];
   query: string;
+  hint?: string;
+  error?: string | null;
   onClose: () => void;
   onSelectItem: (itemId: BaseItemId, categoryId: CategoryId, subcategoryId: SubcategoryId) => void;
   getItemId: (menuItemId: number) => BaseItemId | null;
@@ -102,6 +104,7 @@ export function SearchResults({
   results,
   query,
   hint,
+  error,
   onClose,
   onSelectItem,
   getItemId,
@@ -171,12 +174,20 @@ export function SearchResults({
     return (
       <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-96 overflow-y-auto rounded-2xl border border-border bg-card shadow-lg dark:border-white/10 dark:bg-slate-800">
         <div className="p-6 text-center">
-          <p className="text-sm font-medium text-foreground-muted">
-            Ничего не найдено по запросу &quot;{query}&quot;
-          </p>
-          <p className="mt-2 text-xs text-foreground-muted">
-            Попробуйте изменить запрос или выберите категорию
-          </p>
+          {error ? (
+            <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>
+          ) : hint ? (
+            <p className="text-sm font-medium text-foreground-muted">{hint}</p>
+          ) : (
+            <>
+              <p className="text-sm font-medium text-foreground-muted">
+                Ничего не найдено по запросу &quot;{query}&quot;
+              </p>
+              <p className="mt-2 text-xs text-foreground-muted">
+                Попробуйте изменить запрос или выберите категорию
+              </p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -190,7 +201,7 @@ export function SearchResults({
         </span>
         <button
           onClick={onClose}
-          className="rounded-full p-1 hover:bg-muted dark:hover:bg-white/10"
+          className="rounded-full p-1 hover:bg-hover dark:hover:bg-white/10"
           aria-label="Закрыть"
         >
           <X className="h-4 w-4 text-foreground-muted" />
@@ -218,8 +229,8 @@ export function SearchResults({
               }}
               className={`flex items-center gap-3 p-3 transition-colors ${
                 isSelected
-                  ? "bg-muted dark:bg-white/10"
-                  : "hover:bg-muted dark:hover:bg-white/5"
+                  ? "bg-hover dark:bg-white/10"
+                  : "hover:bg-hover dark:hover:bg-white/5"
               }`}
             >
               {result.image_url ? (
@@ -229,7 +240,7 @@ export function SearchResults({
                   className="h-16 w-16 rounded-xl object-cover"
                 />
               ) : (
-                <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-muted dark:bg-white/10">
+                <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-skeleton-base border border-border shadow-sm dark:bg-white/10 dark:border-white/10">
                   <span className="text-xs text-foreground-muted">нет фото</span>
                 </div>
               )}
@@ -264,7 +275,7 @@ export function SearchResults({
                     onSelectItem(itemId, categoryId, subcategoryId);
                     onClose();
                   }}
-                  className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted dark:border-white/10 dark:hover:bg-white/10"
+                  className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-hover dark:border-white/10 dark:hover:bg-white/10"
                   aria-label="Открыть"
                 >
                   <ExternalLink className="h-3 w-3" />
@@ -289,7 +300,7 @@ export function SearchResults({
         })}
       </div>
       {results.length >= 10 && (
-        <div className="border-t border-border bg-muted px-4 py-2 text-center dark:border-white/10 dark:bg-white/5">
+        <div className="border-t border-border bg-card px-4 py-2 text-center dark:border-white/10 dark:bg-white/5">
           <p className="text-xs text-foreground-muted">
             Показано {results.length} результатов. Уточните запрос для более точного поиска.
           </p>

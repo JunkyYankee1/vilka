@@ -15,27 +15,43 @@ const config: Config = {
           DEFAULT: "#16a34a", // зелёный (типа green-600)
           dark: "#15803d",    // тёмно-зелёный
         },
-        // Design tokens for light/dark themes
+        // Design tokens for light/dark themes (shadcn-compatible)
         background: {
-          DEFAULT: "var(--vilka-bg)",
+          DEFAULT: "rgb(var(--background))",
         },
         card: {
-          DEFAULT: "var(--vilka-card)",
+          DEFAULT: "rgb(var(--card))",
         },
         muted: {
-          DEFAULT: "var(--vilka-muted)",
+          DEFAULT: "rgb(var(--muted))",
         },
         border: {
-          DEFAULT: "var(--vilka-border)",
+          DEFAULT: "rgb(var(--border))", /* Full opacity for better visibility */
+        },
+        input: {
+          DEFAULT: "rgb(var(--input))",
+        },
+        ring: {
+          DEFAULT: "rgb(var(--ring) / 0.3)",
         },
         foreground: {
-          DEFAULT: "var(--vilka-foreground)",
-          muted: "var(--vilka-foreground-muted)",
+          DEFAULT: "rgb(var(--foreground))",
+          muted: "rgb(var(--foreground-muted))",
+        },
+        hover: {
+          DEFAULT: "rgb(var(--hover))",
+        },
+        skeleton: {
+          base: "rgb(var(--skeleton-base) / 0.6)",
+          shimmer: "rgb(var(--skeleton-shimmer) / 0.6)",
+        },
+        focus: {
+          ring: "rgb(var(--ring) / 0.3)",
         },
         // Legacy surface tokens (for backward compatibility)
         surface: {
-          DEFAULT: "var(--vilka-card)", // карточки, блоки
-          soft: "var(--vilka-muted)",    // общий фон, «подложка»
+          DEFAULT: "rgb(var(--card))", // карточки, блоки
+          soft: "rgb(var(--background))",    // общий фон, «подложка» (page background)
         },
       },
       boxShadow: {

@@ -74,47 +74,30 @@ function CatalogUI({
 }: CatalogPageClientProps & { indexes: CatalogIndexes }) {
   const { quantities, entries, totals, offerStocks, add, remove, reload: reloadCart } = useCart();
 
-  // #region agent log
-  useEffect(() => {
-    const logViewport = () => {
-      const width = window.innerWidth;
-      const sidebarEl = document.querySelector('aside[class*="hidden"]');
-      const computedWidth = sidebarEl ? window.getComputedStyle(sidebarEl).width : "unknown";
-      const gridEl = document.querySelector('div[class*="grid-cols"]');
-      const gridTemplate = gridEl ? window.getComputedStyle(gridEl).gridTemplateColumns : "unknown";
-      fetch("http://127.0.0.1:7242/ingest/fa8b72b8-bfd9-4262-93cd-9bb477f82934", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          location: "CatalogPageClient.tsx:69",
-          message: "Viewport and layout check",
-          data: {
-            viewportWidth: width,
-            sidebarWidth: computedWidth,
-            gridTemplate,
-            breakpoint: width >= 1280 ? "xl" : width >= 1024 ? "lg" : width >= 768 ? "md" : "sm",
-          },
-          timestamp: Date.now(),
-          sessionId: "debug-session",
-          runId: "run1",
-          hypothesisId: "A",
-        }),
-      }).catch(() => {});
-    };
-    logViewport();
-    window.addEventListener("resize", logViewport);
-    return () => window.removeEventListener("resize", logViewport);
-  }, []);
-  // #endregion
+  // Agent logging helper (dev-only, can be disabled via env var)
+  // Note: All agent logging is now suppressed via fetch monkey-patch in layout.tsx
+  const shouldLogAgent = () => {
+    if (process.env.NODE_ENV !== "development") return false;
+    if (process.env.NEXT_PUBLIC_DISABLE_AGENT_LOGS === "1") return false;
+    return true;
+  };
+
+  const agentLog = (data: any) => {
+    if (!shouldLogAgent()) return;
+    // Agent logging is now handled via fetch monkey-patch in layout.tsx
+    // This function is kept for compatibility but does nothing
+  };
 
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchHint, setSearchHint] = useState<string | undefined>(undefined);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [isSearchResultsOpen, setIsSearchResultsOpen] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchAbortControllerRef = useRef<AbortController | null>(null);
+  const searchRequestSeqRef = useRef<number>(0);
   
   // Client-side query cache (30-60s TTL)
   const searchCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
@@ -166,7 +149,7 @@ function CatalogUI({
     if (next.itemId !== activeItemId) setActiveItemId(next.itemId);
   }, [activeCategoryId, activeSubcategoryId, activeItemId, indexes]);
 
-  // Improved search with backend API (debounced, with AbortController and cache)
+  // Improved search with backend API (debounced, with AbortController, cache, and robust error handling)
   useEffect(() => {
     const q = searchQuery.trim();
     
@@ -180,6 +163,9 @@ function CatalogUI({
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
+    
+    // Clear error on new query
+    setSearchError(null);
     
     if (!q) {
       setSearchResults([]);
@@ -223,93 +209,179 @@ function CatalogUI({
       return;
     }
     
+    // Increment request sequence for this new query
+    searchRequestSeqRef.current += 1;
+    const currentSeq = searchRequestSeqRef.current;
+    
     // Debounce search (400ms for better UX)
     setIsSearching(true);
-    searchTimeoutRef.current = setTimeout(async () => {
+    searchTimeoutRef.current = setTimeout(() => {
+      void (async () => {
       // Create new AbortController for this request
       const abortController = new AbortController();
       searchAbortControllerRef.current = abortController;
       
-      try {
-        const isDev = process.env.NODE_ENV === "development";
-        const response = await fetch(
-          `/api/search?q=${encodeURIComponent(q)}&limit=10${isDev ? "&debug=true" : ""}`,
-          { signal: abortController.signal }
-        );
+      const isDev = process.env.NODE_ENV === "development";
+      const url = `/api/search?q=${encodeURIComponent(q)}&limit=10${isDev ? "&debug=true" : ""}`;
+      
+      if (isDev) {
+        console.log(`[search] Fetching: ${url} (seq: ${currentSeq})`);
+      }
+      
+      // Retry logic with backoff
+      const MAX_RETRIES = 2;
+      const RETRY_DELAYS = [200, 400]; // ms
+      
+      for (let retryCount = 0; retryCount <= MAX_RETRIES; retryCount++) {
+        // Check if this request is still the latest
+        if (currentSeq !== searchRequestSeqRef.current) {
+          if (isDev) {
+            console.log(`[search] Request ${currentSeq} superseded, aborting`);
+          }
+          return;
+        }
         
-        // Check if request was aborted
+        // Check if aborted
         if (abortController.signal.aborted) {
+          if (isDev) {
+            console.log(`[search] Request ${currentSeq} aborted`);
+          }
           return;
         }
         
-        const data = await response.json();
-        
-        if (data.error) {
-          console.error("[search] Error:", data.error);
-          setSearchResults([]);
-          setIsSearchResultsOpen(false);
-          return;
-        }
-        
-        // Cache the result
-        searchCacheRef.current.set(cacheKey, {
-          data,
-          timestamp: now,
-        });
-        
-        // Clean up old cache entries (keep only last 50)
-        if (searchCacheRef.current.size > 50) {
-          const entries = Array.from(searchCacheRef.current.entries());
-          entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
-          searchCacheRef.current = new Map(entries.slice(0, 50));
-        }
-        
-        const results = data.results || [];
-        setSearchResults(results);
-        setSearchHint(data.hint);
-        setIsSearchResultsOpen(results.length > 0 || !!data.hint);
-        
-        // Auto-navigate ONLY when exactly 1 confident match exists
-        // The API now returns shouldAutoNavigate=true only when:
-        // - resultsCount === 1
-        // - query length >= 4
-        // - resultScore >= AUTO_OPEN_MIN_SCORE (8)
-        if (data.shouldAutoNavigate && results.length === 1) {
-          const result = results[0];
-          // Find the offer for this menu item
-          const offer = catalog.offers.find((o) => o.id === String(result.id));
-          if (offer) {
-            const baseItem = catalog.baseItems.find((bi) => bi.id === offer.baseItemId);
-            if (baseItem) {
-              setActiveCategoryId(baseItem.categoryId);
-              setActiveSubcategoryId(baseItem.subcategoryId);
-              setActiveItemId(baseItem.id);
-              setExpandedCategoryIds((prev) =>
-                prev.includes(baseItem.categoryId) ? prev : [...prev, baseItem.categoryId]
-              );
-              setIsSearchResultsOpen(false);
-              setSearchQuery("");
+        try {
+          const response = await fetch(url, { signal: abortController.signal });
+          
+          // Check if request was aborted after fetch
+          if (abortController.signal.aborted || currentSeq !== searchRequestSeqRef.current) {
+            if (isDev) {
+              console.log(`[search] Request ${currentSeq} aborted after fetch`);
+            }
+            return;
+          }
+          
+          // Check response status
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          }
+          
+          const data = await response.json();
+          
+          // Check again if this request is still the latest
+          if (currentSeq !== searchRequestSeqRef.current) {
+            if (isDev) {
+              console.log(`[search] Request ${currentSeq} superseded, ignoring response`);
+            }
+            return;
+          }
+          
+          if (data.error) {
+            if (isDev) {
+              console.error(`[search] API error (seq ${currentSeq}):`, data.error);
+            }
+            // Keep previous results, just show error hint
+            setSearchError("Ошибка поиска. Попробуйте ещё раз.");
+            setIsSearching(false);
+            return;
+          }
+          
+          // Cache the result
+          searchCacheRef.current.set(cacheKey, {
+            data,
+            timestamp: now,
+          });
+          
+          // Clean up old cache entries (keep only last 50)
+          if (searchCacheRef.current.size > 50) {
+            const entries = Array.from(searchCacheRef.current.entries());
+            entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
+            searchCacheRef.current = new Map(entries.slice(0, 50));
+          }
+          
+          const results = data.results || [];
+          setSearchResults(results);
+          setSearchHint(data.hint);
+          setSearchError(null); // Clear any previous error
+          setIsSearchResultsOpen(results.length > 0 || !!data.hint);
+          
+          // Auto-navigate ONLY when exactly 1 confident match exists
+          if (data.shouldAutoNavigate && results.length === 1) {
+            const result = results[0];
+            const offer = catalog.offers.find((o) => o.id === String(result.id));
+            if (offer) {
+              const baseItem = catalog.baseItems.find((bi) => bi.id === offer.baseItemId);
+              if (baseItem) {
+                setActiveCategoryId(baseItem.categoryId);
+                setActiveSubcategoryId(baseItem.subcategoryId);
+                setActiveItemId(baseItem.id);
+                setExpandedCategoryIds((prev) =>
+                  prev.includes(baseItem.categoryId) ? prev : [...prev, baseItem.categoryId]
+                );
+                setIsSearchResultsOpen(false);
+                setSearchQuery("");
+              }
             }
           }
-        }
-        
-        if (isDev && data.debug) {
-          console.log("[search] Debug:", data.debug);
-        }
-      } catch (error: any) {
-        // Ignore abort errors
-        if (error.name === "AbortError") {
-          return;
-        }
-        console.error("[search] Fetch error:", error);
-        setSearchResults([]);
-        setIsSearchResultsOpen(false);
-      } finally {
-        if (!abortController.signal.aborted) {
+          
+          if (isDev && data.debug) {
+            console.log(`[search] Success (seq ${currentSeq}):`, data.debug);
+          }
+          
+          // Success - exit retry loop
           setIsSearching(false);
           searchAbortControllerRef.current = null;
+          return;
+          
+        } catch (error: any) {
+          // Check if this is an abort error - ignore silently
+          if (error.name === "AbortError" || abortController.signal.aborted) {
+            if (isDev) {
+              console.log(`[search] Request ${currentSeq} aborted (${error.name})`);
+            }
+            return; // Don't clear results, don't show error, just return
+          }
+          
+          // Check if this request is still the latest
+          if (currentSeq !== searchRequestSeqRef.current) {
+            if (isDev) {
+              console.log(`[search] Request ${currentSeq} superseded during error handling`);
+            }
+            return;
+          }
+          
+          // Network error - retry if we have retries left
+          const isNetworkError = error instanceof TypeError && error.message === "Failed to fetch";
+          
+          if (isNetworkError && retryCount < MAX_RETRIES) {
+            const delay = RETRY_DELAYS[retryCount];
+            if (isDev) {
+              console.log(`[search] Network error (seq ${currentSeq}), retrying (${retryCount + 1}/${MAX_RETRIES}) after ${delay}ms`);
+            }
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue; // Retry
+          }
+          
+          // Final failure or non-network error
+          if (isDev) {
+            console.error(`[search] Fetch error (seq ${currentSeq}):`, error);
+          }
+          
+          // Keep previous results, show error hint
+          setSearchError("Ошибка сети. Попробуйте ещё раз.");
+          setIsSearching(false);
+          searchAbortControllerRef.current = null;
+          return;
         }
       }
+      })().catch((err) => {
+        // Silently catch any unhandled promise rejections
+        if (process.env.NODE_ENV === "development") {
+          console.debug("[search] Unhandled error in search effect:", err);
+        }
+        // Keep previous results, just show error hint
+        setSearchError("Ошибка поиска. Попробуйте ещё раз.");
+        setIsSearching(false);
+      });
     }, 400); // 400ms debounce
     
     return () => {
@@ -514,7 +586,7 @@ function CatalogUI({
               </div>
             </div>
           ) : (
-            <div className="rounded-2xl border border-dashed border-border bg-muted p-4 text-xs text-foreground-muted dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
+            <div className="rounded-2xl border border-dashed border-border bg-card p-4 text-xs text-foreground-muted dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
               Для этой позиции пока нет анонимных предложений.
             </div>
           )}
@@ -528,7 +600,7 @@ function CatalogUI({
           </div>
 
           {branded.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border bg-muted p-4 text-xs text-foreground-muted dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
+            <div className="rounded-2xl border border-dashed border-border bg-card p-4 text-xs text-foreground-muted dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
               Пока нет брендированных предложений для этой позиции.
             </div>
           ) : (
@@ -581,10 +653,15 @@ function CatalogUI({
           setUser(data.user);
         }
       } catch (err) {
-        console.error("Failed to load user:", err);
+        // Silently ignore errors - user might not be logged in
+        if (process.env.NODE_ENV === "development") {
+          console.debug("[CatalogUI] Failed to load user:", err);
+        }
       }
     };
-    loadUser();
+    void loadUser().catch(() => {
+      // Silently ignore unhandled promise rejections
+    });
   }, []);
 
   // Закрываем выпадающее меню при клике вне его
@@ -614,10 +691,10 @@ function CatalogUI({
   }, [isProfileDropdownOpen]);
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-surface-soft transition-colors dark:bg-background">
-      <header className="shrink-0 z-40 border-b border-slate-200 bg-white dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
+    <main className="flex h-screen flex-col overflow-hidden bg-transparent transition-colors dark:bg-background">
+      <header className="shrink-0 z-40 border-b border-border bg-card dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
         <div className="hidden md:block">
-          <div className="bg-white dark:bg-white/10 dark:backdrop-blur-md">
+          <div className="bg-card dark:bg-white/10 dark:backdrop-blur-md">
             <div className="mx-auto flex w-full max-w-7xl items-center gap-4 px-6 py-3">
               <Link href="/" className="flex items-center gap-2 transition hover:opacity-80">
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
@@ -630,7 +707,7 @@ function CatalogUI({
               </Link>
 
               <div className="hidden flex-1 items-center md:flex">
-                <div className="relative flex w-full items-center gap-3 rounded-full bg-muted px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:shadow-lg">
+                <div className="relative flex w-full items-center gap-3 rounded-full bg-card border border-border px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:shadow-lg dark:border-white/10">
                   <Search className="h-4 w-4 text-foreground-muted" />
                   <input
                     ref={searchInputRef}
@@ -655,6 +732,7 @@ function CatalogUI({
                         results={searchResults}
                         query={searchQuery}
                         hint={searchHint}
+                        error={searchError}
                         onClose={() => setIsSearchResultsOpen(false)}
                         onSelectItem={handleSearchResultSelect}
                         getItemId={getItemId}
@@ -723,7 +801,7 @@ function CatalogUI({
                               e.stopPropagation();
                               window.location.assign("/api/auth/logout");
                             }}
-                            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-foreground hover:bg-muted dark:hover:bg-white/20"
+                            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-foreground hover:bg-hover dark:hover:bg-white/20"
                           >
                             <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                               <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -758,7 +836,7 @@ function CatalogUI({
                   </button>
 
                   {isMiniCartOpen && (
-                    <div className="absolute right-0 z-40 mt-2 w-80 rounded-2xl border border-border bg-white p-3 shadow-lg dark:border-white/20 dark:bg-slate-800">
+                    <div className="absolute right-0 z-40 mt-2 w-80 rounded-2xl border border-border bg-card p-3 shadow-lg dark:border-white/20 dark:bg-slate-800">
                       <div className="flex items-center justify-between text-base font-bold text-slate-900 dark:text-white">
                         <span>Корзина</span>
                         <button
@@ -780,7 +858,7 @@ function CatalogUI({
                             return (
                             <div
                               key={offer.id}
-                              className="flex items-center justify-between rounded-xl bg-muted px-2 py-2 dark:bg-white/10 dark:backdrop-blur-md"
+                              className="flex items-center justify-between rounded-xl bg-white border border-border px-2 py-2 dark:bg-white/10 dark:backdrop-blur-md dark:border-white/10"
                             >
                               <div className="min-w-0 flex-1">
                                 <div className="line-clamp-1 text-sm font-semibold text-slate-900 dark:text-white">
@@ -820,7 +898,7 @@ function CatalogUI({
         </div>
 
         <div className="md:hidden">
-          <div className="mx-auto flex w-full max-w-7xl items-center gap-3 bg-white px-4 pt-3 pb-2 dark:bg-background">
+          <div className="mx-auto flex w-full max-w-7xl items-center gap-3 bg-transparent px-4 pt-3 pb-2 dark:bg-background">
             <Link href="/" className="flex items-center gap-2 transition hover:opacity-80">
               <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
                 <span className="text-base font-bold text-brand-dark">V</span>
@@ -867,7 +945,7 @@ function CatalogUI({
                           e.stopPropagation();
                           window.location.assign("/api/auth/logout");
                         }}
-                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-foreground hover:bg-muted"
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-foreground hover:bg-hover"
                       >
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                           <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
@@ -904,9 +982,9 @@ function CatalogUI({
             </button>
           </div>
 
-          <div className="sticky top-0 z-30 bg-white/95 backdrop-blur dark:bg-white/10 dark:backdrop-blur-md">
+          <div className="sticky top-0 z-30 bg-background/95 backdrop-blur dark:bg-white/10 dark:backdrop-blur-md">
             <div className="mx-auto max-w-7xl px-4 pb-2">
-              <div className="relative flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
+              <div className="relative flex w-full items-center gap-3 rounded-full bg-card border border-border px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:border-white/10">
                 <Search className="h-4 w-4 text-foreground-muted" />
                 <input
                   type="text"
@@ -945,21 +1023,18 @@ function CatalogUI({
 
       <section className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 pt-4 md:pt-6">
         <div className="grid h-full min-h-0 grid-cols-1 items-stretch gap-6 md:grid-cols-[64px_minmax(0,1fr)_320px] lg:grid-cols-[200px_minmax(0,1fr)_320px] xl:grid-cols-[240px_minmax(0,1fr)_320px]">
-          {/* #region agent log */}
           <aside
             ref={(el: HTMLElement | null) => {
-              if (el) {
-                const width = window.getComputedStyle(el).width;
-                const display = window.getComputedStyle(el).display;
-                const firstBtn = el.querySelector("button");
-                const btnTextVisible = firstBtn
-                  ? window.getComputedStyle(firstBtn.querySelector('span[class*="hidden"]') as Element).display !==
-                    "none"
-                  : false;
-                fetch("http://127.0.0.1:7242/ingest/fa8b72b8-bfd9-4262-93cd-9bb477f82934", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
+              if (el && shouldLogAgent()) {
+                try {
+                  const width = window.getComputedStyle(el).width;
+                  const display = window.getComputedStyle(el).display;
+                  const firstBtn = el.querySelector("button");
+                  const btnTextVisible = firstBtn
+                    ? window.getComputedStyle(firstBtn.querySelector('span[class*="hidden"]') as Element).display !==
+                      "none"
+                    : false;
+                  agentLog({
                     location: "CatalogPageClient.tsx:399",
                     message: "Sidebar render check",
                     data: {
@@ -972,13 +1047,14 @@ function CatalogUI({
                     sessionId: "debug-session",
                     runId: "run1",
                     hypothesisId: "A",
-                  }),
-                }).catch(() => {});
+                  });
+                } catch {
+                  // Silently ignore
+                }
               }
             }}
             className="hidden h-full w-full overflow-y-auto rounded-3xl bg-card shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:border-white/10 md:block md:w-auto md:border md:border-border"
           >
-            {/* #endregion */}
             <div className="rounded-3xl bg-card p-2 dark:bg-transparent md:p-3">
               <h2 className="hidden px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-foreground-muted lg:block">
                 Категории
@@ -998,85 +1074,80 @@ function CatalogUI({
                         onClick={() => handleCategoryClick(cat.id)}
                         title={cat.name}
                         onMouseEnter={(e: { currentTarget: HTMLElement }) => {
-                          // #region agent log
-                          const el = e.currentTarget;
-                          const tooltipEl = window.getComputedStyle(el, "::after");
-                          const tooltipOpacity = tooltipEl.opacity;
-                          const viewportWidth = window.innerWidth;
-                          fetch("http://127.0.0.1:7242/ingest/fa8b72b8-bfd9-4262-93cd-9bb477f82934", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                              location: "CatalogPageClient.tsx:416",
-                              message: "Tooltip hover check",
-                              data: {
-                                categoryName: cat.name,
-                                viewportWidth,
-                                tooltipOpacity,
-                                hasTooltipClass: el.classList.contains("tooltip-icon-only"),
-                              },
-                              timestamp: Date.now(),
-                              sessionId: "debug-session",
-                              runId: "run1",
-                              hypothesisId: "B",
-                            }),
-                          }).catch(() => {});
-                          // #endregion
+                          if (shouldLogAgent()) {
+                            try {
+                              const el = e.currentTarget;
+                              const tooltipEl = window.getComputedStyle(el, "::after");
+                              const tooltipOpacity = tooltipEl.opacity;
+                              const viewportWidth = window.innerWidth;
+                              agentLog({
+                                location: "CatalogPageClient.tsx:416",
+                                message: "Tooltip hover check",
+                                data: {
+                                  categoryName: cat.name,
+                                  viewportWidth,
+                                  tooltipOpacity,
+                                  hasTooltipClass: el.classList.contains("tooltip-icon-only"),
+                                },
+                                timestamp: Date.now(),
+                                sessionId: "debug-session",
+                                runId: "run1",
+                                hypothesisId: "B",
+                              });
+                            } catch {
+                              // Silently ignore
+                            }
+                          }
                         }}
                         className={[
                           "group flex w-full items-center justify-between rounded-2xl px-2 py-2 text-left transition",
                           "md:justify-center lg:justify-between",
                           "md:tooltip-icon-only",
                           isCatActive
-                            ? "bg-card text-foreground font-bold dark:bg-white/20"
-                            : "bg-card text-foreground font-medium hover:bg-muted dark:bg-white/10 dark:hover:bg-white/20",
+                            ? "bg-card text-foreground border border-border font-bold shadow-sm dark:bg-white/20 dark:border-white/10"
+                            : "bg-card text-foreground border border-border font-medium shadow-sm hover:bg-hover hover:border-border dark:bg-white/10 dark:hover:bg-white/20 dark:border-white/10",
                         ].join(" ")}
                       >
-                        <span
-                          ref={(el: HTMLElement | null) => {
-                            // #region agent log
-                            if (el) {
-                              const justifyContent = window.getComputedStyle(el).justifyContent;
-                              const viewportWidth = window.innerWidth;
-                              fetch("http://127.0.0.1:7242/ingest/fa8b72b8-bfd9-4262-93cd-9bb477f82934", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  location: "CatalogPageClient.tsx:429",
-                                  message: "Icon container alignment check",
-                                  data: {
-                                    categoryName: cat.name,
-                                    justifyContent,
-                                    viewportWidth,
-                                    expectedCenter: viewportWidth >= 768 && viewportWidth < 1024,
-                                  },
-                                  timestamp: Date.now(),
-                                  sessionId: "debug-session",
-                                  runId: "run1",
-                                  hypothesisId: "D",
-                                }),
-                              }).catch(() => {});
-                            }
-                            // #endregion
-                          }}
+                          <span
+                            ref={(el: HTMLElement | null) => {
+                              if (el && shouldLogAgent()) {
+                                try {
+                                  const justifyContent = window.getComputedStyle(el).justifyContent;
+                                  const viewportWidth = window.innerWidth;
+                                  agentLog({
+                                    location: "CatalogPageClient.tsx:429",
+                                    message: "Icon container alignment check",
+                                    data: {
+                                      categoryName: cat.name,
+                                      justifyContent,
+                                      viewportWidth,
+                                      expectedCenter: viewportWidth >= 768 && viewportWidth < 1024,
+                                    },
+                                    timestamp: Date.now(),
+                                    sessionId: "debug-session",
+                                    runId: "run1",
+                                    hypothesisId: "D",
+                                  });
+                                } catch {
+                                  // Silently ignore
+                                }
+                              }
+                            }}
                           className="flex min-w-0 flex-1 items-center gap-2 lg:gap-3"
                         >
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface-soft text-lg md:h-10 md:w-10">
+                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-muted border border-border shadow-sm text-lg md:h-10 md:w-10 dark:bg-white/10 dark:border-white/10">
                             <CategoryEmoji code={cat.id} />
                           </span>
                           <span
                             ref={(el: HTMLElement | null) => {
-                              // #region agent log
-                              if (el) {
-                                const display = window.getComputedStyle(el).display;
-                                const width = window.getComputedStyle(el).width;
-                                const textEl = el.querySelector("span");
-                                const textWidth = textEl ? window.getComputedStyle(textEl).width : "unknown";
-                                const textOverflow = textEl ? window.getComputedStyle(textEl).textOverflow : "unknown";
-                                fetch("http://127.0.0.1:7242/ingest/fa8b72b8-bfd9-4262-93cd-9bb477f82934", {
-                                  method: "POST",
-                                  headers: { "Content-Type": "application/json" },
-                                  body: JSON.stringify({
+                              if (el && shouldLogAgent()) {
+                                try {
+                                  const display = window.getComputedStyle(el).display;
+                                  const width = window.getComputedStyle(el).width;
+                                  const textEl = el.querySelector("span");
+                                  const textWidth = textEl ? window.getComputedStyle(textEl).width : "unknown";
+                                  const textOverflow = textEl ? window.getComputedStyle(textEl).textOverflow : "unknown";
+                                  agentLog({
                                     location: "CatalogPageClient.tsx:433",
                                     message: "Text visibility and truncation check",
                                     data: {
@@ -1091,10 +1162,11 @@ function CatalogUI({
                                     sessionId: "debug-session",
                                     runId: "run1",
                                     hypothesisId: "C",
-                                  }),
-                                }).catch(() => {});
+                                  });
+                                } catch {
+                                  // Silently ignore
+                                }
                               }
-                              // #endregion
                             }}
                             className="hidden min-w-0 flex-col lg:flex"
                           >
@@ -1130,7 +1202,7 @@ function CatalogUI({
                                     "flex w-full min-w-0 items-center justify-between rounded-2xl px-3 py-1.5 text-left text-xs transition",
                                     isSubActive
                                       ? "bg-muted text-foreground font-semibold dark:bg-white/20"
-                                      : "bg-transparent text-foreground font-medium hover:bg-muted dark:hover:bg-white/10",
+                                      : "bg-transparent text-foreground font-medium hover:bg-hover dark:hover:bg-white/10",
                                   ].join(" ")}
                                 >
                                   <span className="truncate">{sub.name}</span>
@@ -1152,7 +1224,7 @@ function CatalogUI({
             <div className="rounded-[var(--vilka-radius-xl)] border border-border bg-card p-5 sm:p-6 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="max-w-md">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-muted px-3 py-1 text-xs font-medium text-foreground dark:bg-white/10">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-card border border-border px-3 py-1 text-xs font-medium text-foreground shadow-sm dark:bg-white/10 dark:border-white/10">
                     <Clock className="h-3.5 w-3.5" />
                     <span>Горячая еда за 25–35 минут</span>
                   </div>
@@ -1167,7 +1239,7 @@ function CatalogUI({
                   </p>
                 </div>
 
-                <div className="flex flex-col gap-2 rounded-3xl bg-muted p-4 text-sm sm:w-64 dark:bg-white/10 dark:backdrop-blur-md">
+                <div className="flex flex-col gap-2 rounded-3xl bg-white border border-border p-4 text-sm sm:w-64 dark:bg-white/10 dark:backdrop-blur-md dark:border-white/10">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-foreground-muted">Минимальная сумма заказа</span>
                     <span className="text-sm font-semibold text-foreground">от 0 ₽</span>
@@ -1297,7 +1369,7 @@ function CatalogUI({
                         return (
                           <div key={offer.id} className="flex flex-col gap-2 rounded-2xl border border-border bg-card p-3 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
                             <div className="flex items-start gap-3">
-                              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-muted dark:bg-white/10">
+                              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl bg-skeleton-base border border-border shadow-sm dark:bg-white/10 dark:border-white/10">
                                 {offer.imageUrl ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
@@ -1323,23 +1395,29 @@ function CatalogUI({
 
                                 <button
                                   type="button"
-                                  className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-border bg-card px-2 py-1 text-[11px] font-medium text-foreground-muted hover:border-slate-300 hover:bg-muted active:scale-95 transition-transform transform-gpu dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
-                                  onClick={async () => {
-                                    const next = !lineFavorites[offer.id];
-                                    setLineFavorites((prev) => ({ ...prev, [offer.id]: next }));
-                                    try {
-                                      await fetch("/api/favorites/toggle", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({
-                                          userId: 1,
-                                          menuItemId: Number(offer.baseItemId),
-                                          favorite: next,
-                                        }),
-                                      });
-                                    } catch (e) {
-                                      console.error("favorite toggle failed", e);
-                                    }
+                                  className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-border bg-white px-2 py-1 text-[11px] font-medium text-foreground-muted hover:border-slate-300 hover:bg-hover active:scale-95 transition-transform transform-gpu dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
+                                  onClick={() => {
+                                    void (async () => {
+                                      const next = !lineFavorites[offer.id];
+                                      setLineFavorites((prev) => ({ ...prev, [offer.id]: next }));
+                                      try {
+                                        await fetch("/api/favorites/toggle", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({
+                                            userId: 1,
+                                            menuItemId: Number(offer.baseItemId),
+                                            favorite: next,
+                                          }),
+                                        });
+                                      } catch (e) {
+                                        if (process.env.NODE_ENV === "development") {
+                                          console.debug("[CatalogUI] Favorite toggle failed:", e);
+                                        }
+                                      }
+                                    })().catch(() => {
+                                      // Silently ignore unhandled promise rejections
+                                    });
                                   }}
                                 >
                                   <Heart
@@ -1351,7 +1429,7 @@ function CatalogUI({
                                   <span>{lineFavorites[offer.id] ? "В избранном" : "В избранное"}</span>
                                 </button>
 
-                                <div className="mt-2 flex items-center justify-between rounded-full bg-muted px-3 py-1.5 dark:bg-white/10 dark:backdrop-blur-md">
+                                <div className="mt-2 flex items-center justify-between rounded-full bg-card border border-border px-3 py-1.5 shadow-sm dark:bg-white/10 dark:backdrop-blur-md dark:border-white/10">
                                   {/* Анимация нажатия на +/- */}
                                   <div className="[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95">
                                     <QuantityControls
@@ -1373,7 +1451,7 @@ function CatalogUI({
                               </div>
                             </div>
 
-                            <div className="flex flex-col gap-2 rounded-2xl border border-border bg-muted px-3 py-2 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
+                            <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-sm dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
                               <label className="text-[11px] font-semibold text-foreground-muted">Комментарий для кухни</label>
                               <textarea
                                 value={noteState.comment}
@@ -1435,19 +1513,25 @@ function CatalogUI({
                       <button
                         type="button"
                         className="rounded-2xl bg-brand px-3 py-2 text-sm font-semibold text-white hover:bg-brand-dark active:scale-95 transition-transform transform-gpu"
-                        onClick={async () => {
-                          const nameInput = document.getElementById("save-cart-name") as HTMLInputElement | null;
-                          const name = nameInput?.value?.trim();
-                          if (!name) return;
-                          try {
-                            await fetch("/api/cart/save", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ cartId: 1, userId: 1, name }),
-                            });
-                          } catch (e) {
-                            console.error("save cart failed", e);
-                          }
+                        onClick={() => {
+                          void (async () => {
+                            const nameInput = document.getElementById("save-cart-name") as HTMLInputElement | null;
+                            const name = nameInput?.value?.trim();
+                            if (!name) return;
+                            try {
+                              await fetch("/api/cart/save", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ cartId: 1, userId: 1, name }),
+                              });
+                            } catch (e) {
+                              if (process.env.NODE_ENV === "development") {
+                                console.debug("[CatalogUI] Save cart failed:", e);
+                              }
+                            }
+                          })().catch(() => {
+                            // Silently ignore unhandled promise rejections
+                          });
                         }}
                       >
                         Сохранить сет
@@ -1459,24 +1543,30 @@ function CatalogUI({
                         id="apply-saved-id"
                         type="number"
                         placeholder="ID сохранённого сета"
-                        className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                        className="w-full rounded-2xl border border-border bg-card px-3 py-2 text-sm text-foreground outline-none placeholder:text-foreground-muted focus:border-brand dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md"
                       />
                       <button
                         type="button"
-                        className="rounded-2xl border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground hover:border-slate-300 hover:bg-slate-50 active:scale-95 transition-transform transform-gpu"
-                        onClick={async () => {
-                          const input = document.getElementById("apply-saved-id") as HTMLInputElement | null;
-                          const id = input?.value;
-                          if (!id) return;
-                          try {
-                            await fetch("/api/cart/apply-saved", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ savedCartId: Number(id) }),
-                            });
-                          } catch (e) {
-                            console.error("apply saved failed", e);
-                          }
+                        className="rounded-2xl border border-border bg-card px-3 py-2 text-sm font-semibold text-foreground shadow-sm hover:border-border hover:bg-hover active:scale-95 transition-transform transform-gpu dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
+                        onClick={() => {
+                          void (async () => {
+                            const input = document.getElementById("apply-saved-id") as HTMLInputElement | null;
+                            const id = input?.value;
+                            if (!id) return;
+                            try {
+                              await fetch("/api/cart/apply-saved", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ savedCartId: Number(id) }),
+                              });
+                            } catch (e) {
+                              if (process.env.NODE_ENV === "development") {
+                                console.debug("[CatalogUI] Apply saved cart failed:", e);
+                              }
+                            }
+                          })().catch(() => {
+                            // Silently ignore unhandled promise rejections
+                          });
                         }}
                       >
                         Повторить сет
@@ -1486,7 +1576,7 @@ function CatalogUI({
                 </div>
               )}
 
-              <div className="rounded-3xl border border-border bg-muted p-3 text-xs text-foreground-muted shadow-vilka-soft">
+              <div className="rounded-3xl border border-border bg-card p-3 text-xs text-foreground-muted shadow-vilka-soft dark:bg-white/10 dark:border-white/10">
                 <p className="font-semibold text-foreground">Вилка пока не везде</p>
                 <p className="mt-1 text-foreground-muted">Укажите адрес, чтобы увидеть заведения, которые доставляют именно к вам.</p>
               </div>
@@ -1495,7 +1585,7 @@ function CatalogUI({
         </div>
       </section>
 
-      <footer className="shrink-0 border-t border-slate-200 bg-white dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
+      <footer className="shrink-0 border-t border-border bg-card dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
         <div className="flex w-full flex-col gap-2 px-6 py-3 text-xs text-foreground-muted md:flex-row md:items-center md:justify-between">
           <span>© {new Date().getFullYear()} Вилка. Доставка еды из ресторанов и пекарен.</span>
           <div className="flex flex-wrap gap-3">
@@ -1521,24 +1611,30 @@ function CatalogUI({
           setIsAuthOpen(false);
           setPendingAddOfferId(null);
         }}
-        onSuccess={async () => {
-          // После успешного входа загружаем информацию о пользователе
-          try {
-            const res = await fetch("/api/auth/me");
-            const data = await res.json().catch(() => ({}));
-            setUser((data as any).user ?? null);
+        onSuccess={() => {
+          void (async () => {
+            // После успешного входа загружаем информацию о пользователе
+            try {
+              const res = await fetch("/api/auth/me");
+              const data = await res.json().catch(() => ({}));
+              setUser((data as any).user ?? null);
 
-            // IMPORTANT: подтягиваем серверную корзину под новым auth (иначе пустая локальная может затереть user-cart)
-            await reloadCart();
+              // IMPORTANT: подтягиваем серверную корзину под новым auth (иначе пустая локальная может затереть user-cart)
+              await reloadCart();
 
-            if ((data as any).user && pendingAddOfferId != null) {
-              add(pendingAddOfferId);
-              setPendingAddOfferId(null);
-              setIsAuthOpen(false);
+              if ((data as any).user && pendingAddOfferId != null) {
+                add(pendingAddOfferId);
+                setPendingAddOfferId(null);
+                setIsAuthOpen(false);
+              }
+            } catch (err) {
+              if (process.env.NODE_ENV === "development") {
+                console.debug("[CatalogUI] Failed to load user after auth:", err);
+              }
             }
-          } catch (err) {
-            console.error("Failed to load user:", err);
-          }
+          })().catch(() => {
+            // Silently ignore unhandled promise rejections
+          });
         }}
       />
       <AddressModal

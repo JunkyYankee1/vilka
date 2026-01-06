@@ -172,4 +172,9 @@ Create `.env.local` to override:
 - `OLLAMA_MODEL`: Change the LLM model (default: `llama3.2:3b`)
 - `NEXT_PUBLIC_YANDEX_MAPS_API_KEY`: For address autocomplete
 - `TELEGRAM_BOT_TOKEN`: For Zabbix monitoring alerts
+- `NEXT_PUBLIC_SUPPRESS_CURSOR_INGEST`: Set to `0` to disable Cursor ingest request suppression (default: enabled in development when running in Cursor WebView)
+
+### Cursor WebView Development
+
+When developing in Cursor's embedded browser, the app automatically suppresses telemetry/agent logging requests to `127.0.0.1:7242/ingest/` to prevent network spam and resource exhaustion. This is enabled by default in development mode when the user agent contains "Cursor". To disable this suppression, set `NEXT_PUBLIC_SUPPRESS_CURSOR_INGEST=0` in your `.env.local` file.
 

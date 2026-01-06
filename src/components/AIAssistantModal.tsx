@@ -127,7 +127,7 @@ export default function AIAssistantModal({ isOpen, onClose }: Props) {
           <button
             type="button"
             onClick={closeModal}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-slate-700 dark:bg-slate-600 dark:text-slate-100"
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white border border-border text-slate-700 dark:bg-slate-600 dark:text-slate-100 dark:border-white/10"
           >
             <X className="h-4 w-4" />
           </button>
@@ -159,7 +159,7 @@ export default function AIAssistantModal({ isOpen, onClose }: Props) {
                   <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
                     <Utensils className="h-4 w-4 text-brand-dark" />
                   </div>
-                  <div className="max-w-[85%] rounded-2xl bg-muted px-3 py-2 text-sm text-slate-900 whitespace-pre-wrap dark:bg-slate-600 dark:text-white">
+                  <div className="max-w-[85%] rounded-2xl bg-white border border-border px-3 py-2 text-sm text-slate-900 whitespace-pre-wrap dark:bg-slate-600 dark:text-white dark:border-white/10">
                     {m.content}
                     <div className="mt-1 text-right text-[11px] text-slate-500 dark:text-slate-400">{m.at}</div>
                   </div>
@@ -184,7 +184,7 @@ export default function AIAssistantModal({ isOpen, onClose }: Props) {
 
         {/* Input */}
         <div className="pt-4">
-          <div className="flex items-center gap-2 rounded-2xl bg-muted px-3 py-2 dark:bg-slate-600">
+          <div className="flex items-center gap-2 rounded-2xl bg-white border border-border px-3 py-2 dark:bg-slate-600 dark:border-white/10">
             <button
               type="button"
               className="flex h-9 w-9 items-center justify-center rounded-full text-slate-600 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-500"
