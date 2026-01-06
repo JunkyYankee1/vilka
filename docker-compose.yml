@@ -87,18 +87,19 @@ services:
       dockerfile: Dockerfile
     container_name: kasashka_app
     working_dir: /usr/src/app
-    command: sh -c "chmod +x node_modules/.bin/next && npm run dev"
+    # Use named volume for node_modules to prevent host overwrite
     volumes:
       - ./:/usr/src/app
-      - /usr/src/app/node_modules
+      - app_node_modules:/usr/src/app/node_modules
     environment:
       NODE_ENV: development
-      # строка подключения к Postgres из контейнера app
+      # Database connection from app container (uses service name 'postgres')
       DATABASE_URL: postgresql://kasashka:kasashka_password@postgres:5432/kasashka_db
-      # строка подключения к Redis из контейнера app
+      # Redis connection from app container (uses service name 'redis')
       REDIS_URL: redis://redis:6379
+      # Public API base URL (for client-side requests)
       NEXT_PUBLIC_API_BASE_URL: http://localhost
-      # MinIO (S3-compatible) для хранения изображений
+      # MinIO (S3-compatible) for image storage
       MINIO_ENDPOINT: minio
       MINIO_PORT: "9000"
       MINIO_USE_SSL: "false"
@@ -122,11 +123,12 @@ services:
     networks:
       - kasashka_net
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health || exit 1"]
+      test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://localhost:3000/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+    restart: unless-stopped
 
   nginx:
     image: nginx:alpine
@@ -308,6 +310,7 @@ volumes:
   zabbix_db_data:
   zabbix_server_data:
   ollama_data:
+  app_node_modules:  # Named volume for app node_modules to prevent host overwrite
 
 networks:
   kasashka_net:

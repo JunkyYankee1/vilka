@@ -12,7 +12,8 @@ SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
+-- Set search_path to include public schema for extensions
+SET search_path = public, pg_catalog;
 SET check_function_bodies = false;
 SET xmloption = content;
 SET client_min_messages = warning;
@@ -35,6 +36,12 @@ ALTER TYPE public.menu_option_type OWNER TO kasashka;
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
+
+--
+-- Name: pg_trgm; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 --
 -- Name: cart_items; Type: TABLE; Schema: public; Owner: kasashka

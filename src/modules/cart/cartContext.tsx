@@ -30,10 +30,14 @@ export function CartProvider({ offers, children }: CartProviderProps) {
   const [isLoading, setIsLoading] = useState(true);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedRef = useRef(false);
+  const didWarnNetworkErrorRef = useRef(false);
 
   const loadCartFromServer = useRef(
-    async (opts?: { mergeIfHasExisting?: boolean }) => {
+    async (opts?: { mergeIfHasExisting?: boolean; retryCount?: number }) => {
       const mergeIfHasExisting = opts?.mergeIfHasExisting ?? false;
+      const retryCount = opts?.retryCount ?? 0;
+      const MAX_RETRIES = 3;
+      const RETRY_DELAYS = [300, 500, 800]; // ms
 
       // Skip if not in browser
       if (typeof window === "undefined") {
@@ -43,24 +47,61 @@ export function CartProvider({ offers, children }: CartProviderProps) {
 
       setIsLoading(true);
       try {
-        console.log("[CartProvider] Loading cart from server");
-        const res = await fetch("/api/cart/load", { method: "GET" }).catch((fetchError) => {
-          console.error("[CartProvider] Fetch error loading cart (network/connection):", fetchError);
-          throw fetchError;
+        const apiUrl = "/api/cart/load";
+        const fullUrl = typeof window !== "undefined" 
+          ? `${window.location.origin}${apiUrl}`
+          : apiUrl;
+        
+        if (process.env.NODE_ENV === "development" && retryCount === 0) {
+          console.log(`[CartProvider] Loading cart from: ${fullUrl}`);
+        }
+        
+        const res = await fetch(apiUrl, { method: "GET" }).catch((fetchError) => {
+          // Network error - retry if we haven't exceeded max retries
+          if (retryCount < MAX_RETRIES) {
+            const delay = RETRY_DELAYS[retryCount] || 800;
+            if (process.env.NODE_ENV === "development") {
+              console.log(
+                `[CartProvider] Network error loading cart, retrying (${retryCount + 1}/${MAX_RETRIES}) after ${delay}ms...`
+              );
+            }
+            setTimeout(() => {
+              loadCartFromServer.current({ mergeIfHasExisting, retryCount: retryCount + 1 });
+            }, delay);
+            return null;
+          }
+          
+          // After max retries, log warning once
+          if (!didWarnNetworkErrorRef.current) {
+            didWarnNetworkErrorRef.current = true;
+            if (process.env.NODE_ENV === "development") {
+              console.warn(
+                `[CartProvider] Network error loading cart (${fullUrl}) after ${MAX_RETRIES} retries. ` +
+                `Continuing with empty cart. This is normal during app startup.`
+              );
+            }
+          }
+          return null;
         });
+        
+        // If fetch failed (network error), gracefully degrade
+        if (!res) {
+          setIsLoading(false);
+          return;
+        }
 
         if (res.ok) {
           const data = await res.json();
-          console.log("[CartProvider] Cart loaded from server:", data);
+          
+          if (process.env.NODE_ENV === "development") {
+            console.log("[CartProvider] Cart loaded from server", { itemsCount: data.items?.length || 0 });
+          }
 
           const quantities: CartState = {};
           if (data.items && Array.isArray(data.items)) {
             for (const item of data.items) {
               const stringId = String(item.offerId);
               quantities[stringId] = item.quantity;
-              console.log(
-                `[CartProvider] Loading item: ${item.offerId} (number) -> "${stringId}" (string), qty: ${item.quantity}`
-              );
             }
           }
 
@@ -68,7 +109,6 @@ export function CartProvider({ offers, children }: CartProviderProps) {
             setCart((prev) => {
               const hasExistingItems = Object.values(prev).some((qty) => qty > 0);
               if (hasExistingItems) {
-                console.log("[CartProvider] Merging loaded cart with existing items:", prev, "+", quantities);
                 return { ...prev, ...quantities };
               }
               return quantities;
@@ -77,13 +117,26 @@ export function CartProvider({ offers, children }: CartProviderProps) {
             // IMPORTANT: replace state (used after auth changes) to avoid syncing stale/empty cart over user cart
             setCart(quantities);
           }
+          
+          // Reset warning flag on success
+          didWarnNetworkErrorRef.current = false;
         } else {
-          console.error("[CartProvider] Failed to load cart:", res.status);
+          if (process.env.NODE_ENV === "development") {
+            console.error(`[CartProvider] Failed to load cart: ${res.status}`);
+          }
         }
       } catch (err) {
-        console.error("[CartProvider] Error loading cart:", err);
-        if (err instanceof TypeError && err.message === "Failed to fetch") {
-          console.warn("[CartProvider] Network error - continuing with current cart");
+        // Handle errors gracefully - don't spam console
+        if (process.env.NODE_ENV === "development") {
+          if (err instanceof TypeError && err.message === "Failed to fetch") {
+            // Only warn once per page load
+            if (!didWarnNetworkErrorRef.current) {
+              didWarnNetworkErrorRef.current = true;
+              console.warn("[CartProvider] Network error loading cart - continuing with empty cart");
+            }
+          } else {
+            console.error("[CartProvider] Error loading cart:", err);
+          }
         }
       } finally {
         setIsLoading(false);
@@ -98,12 +151,9 @@ export function CartProvider({ offers, children }: CartProviderProps) {
     loadCartFromServer.current({ mergeIfHasExisting: true });
   }, []);
 
-  const syncWithServer = useRef(async (quantities: CartState) => {
-    console.log("[CartProvider] syncWithServer called with quantities:", quantities);
-    
+  const syncWithServer = useRef(async (quantities: CartState, retryCount = 0) => {
     // Skip sync if we're not in the browser
     if (typeof window === "undefined") {
-      console.log("[CartProvider] Skipping sync - not in browser");
       return;
     }
     
@@ -111,46 +161,64 @@ export function CartProvider({ offers, children }: CartProviderProps) {
       .filter(([_, qty]) => qty > 0)
       .map(([offerId, quantity]) => {
         const numId = Number(offerId);
-        console.log(`[CartProvider] Converting offerId "${offerId}" (${typeof offerId}) to ${numId} (${typeof numId})`);
         return {
           offerId: numId,
           quantity,
         };
       });
 
-    console.log("[CartProvider] Prepared items for sync:", items);
+    // Skip if no items to sync
+    if (items.length === 0 && Object.keys(quantities).length === 0) {
+      return;
+    }
 
-    // Проверка isLoading уже выполнена в useEffect перед вызовом этой функции
+    // Build the API URL (relative for Next.js API routes)
+    const apiUrl = "/api/cart/validate";
+    const fullUrl = typeof window !== "undefined" 
+      ? `${window.location.origin}${apiUrl}`
+      : apiUrl;
+    
+    const MAX_RETRIES = 3;
+    const RETRY_DELAYS = [300, 500, 800]; // ms
+    
+    // Debug log in development only (once per sync attempt)
+    if (process.env.NODE_ENV === "development" && retryCount === 0) {
+      console.log(`[CartProvider] Syncing cart to: ${fullUrl}`, { itemsCount: items.length });
+    }
 
     try {
-      console.log("[CartProvider] Syncing cart with", items.length, "items", JSON.stringify(items, null, 2));
-      const res = await fetch("/api/cart/validate", {
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           deliverySlot: null,
           items,
         }),
-      }).catch((fetchError) => {
-        // Handle network errors (e.g., server not ready, CORS, etc.)
-        console.error("[CartProvider] Fetch error (network/connection):", fetchError);
-        throw fetchError;
       });
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        console.error("[CartProvider] Cart sync failed", res.status, errorData);
+        if (process.env.NODE_ENV === "development") {
+          console.error(`[CartProvider] Cart sync failed (${res.status}):`, errorData);
+        }
         // Не обновляем состояние при ошибке
         return;
       }
       
       const data = await res.json();
-      console.log("[CartProvider] Cart synced successfully:", data);
-      console.log("[CartProvider] Received items:", data.items);
+      
+      if (process.env.NODE_ENV === "development") {
+        console.log("[CartProvider] Cart synced successfully", { itemsCount: data.items?.length || 0 });
+      }
+      
+      // Reset warning flag on success
+      didWarnNetworkErrorRef.current = false;
       
       // Проверяем, есть ли изменения (удаленные товары)
       if (data.changes && Array.isArray(data.changes) && data.changes.length > 0) {
-        console.warn("[CartProvider] Items were removed:", data.changes);
+        if (process.env.NODE_ENV === "development") {
+          console.warn("[CartProvider] Items were removed:", data.changes);
+        }
       }
       
       // Обновляем локальное состояние из ответа сервера
@@ -161,7 +229,6 @@ export function CartProvider({ offers, children }: CartProviderProps) {
           // Конвертируем числовой ID обратно в строку для CartState
           const stringId = String(item.offerId);
           serverQuantities[stringId] = item.quantity;
-          console.log(`[CartProvider] Mapping server item: ${item.offerId} (number) -> "${stringId}" (string), qty: ${item.quantity}`);
         }
       }
 
@@ -175,26 +242,42 @@ export function CartProvider({ offers, children }: CartProviderProps) {
         }
         setOfferStocks((prev) => ({ ...prev, ...nextStocks }));
       }
-      
-      console.log("[CartProvider] Updating cart state from server:", serverQuantities);
-      console.log("[CartProvider] Previous cart state:", cart);
-      
-      // Используем функциональное обновление, чтобы не потерять изменения
-      setCart((prev) => {
-        // Объединяем предыдущее состояние с серверным, приоритет у сервера
-        const merged = { ...prev, ...serverQuantities };
-        // Удаляем товары, которых нет в серверном ответе (если они были удалены)
-        for (const key in merged) {
-          if (!(key in serverQuantities) && prev[key] > 0) {
-            console.log(`[CartProvider] Removing item ${key} from cart (not in server response)`);
-            delete merged[key];
+
+      // Обновляем корзину из ответа сервера (это важно для синхронизации с другими вкладками/устройствами)
+      setCart(serverQuantities);
+    } catch (err) {
+      // Handle network errors gracefully with retry logic
+      if (err instanceof TypeError && err.message === "Failed to fetch") {
+        // Retry if we haven't exceeded max retries
+        if (retryCount < MAX_RETRIES) {
+          const delay = RETRY_DELAYS[retryCount] || 800;
+          if (process.env.NODE_ENV === "development") {
+            console.log(
+              `[CartProvider] Network error, retrying (${retryCount + 1}/${MAX_RETRIES}) after ${delay}ms...`
+            );
+          }
+          setTimeout(() => {
+            syncWithServer.current(quantities, retryCount + 1);
+          }, delay);
+          return;
+        }
+        
+        // After max retries, log warning once per page load
+        if (!didWarnNetworkErrorRef.current) {
+          didWarnNetworkErrorRef.current = true;
+          if (process.env.NODE_ENV === "development") {
+            console.warn(
+              `[CartProvider] Network error during cart sync (${fullUrl}) after ${MAX_RETRIES} retries. ` +
+              `Continuing with local cart state. This is normal during app startup.`
+            );
           }
         }
-        console.log("[CartProvider] Merged cart state:", merged);
-        return merged;
-      });
-    } catch (err) {
-      console.error("[CartProvider] Cart sync error:", err);
+        return;
+      }
+      // Other errors - log in dev mode
+      if (process.env.NODE_ENV === "development") {
+        console.error("[CartProvider] Error syncing cart:", err);
+      }
     }
   });
 
@@ -202,7 +285,6 @@ export function CartProvider({ offers, children }: CartProviderProps) {
   useEffect(() => {
     // Пропускаем синхронизацию во время начальной загрузки
     if (isLoading) {
-      console.log("[CartProvider] Skipping sync effect - still loading (isLoading:", isLoading, ")");
       return;
     }
 
@@ -214,13 +296,8 @@ export function CartProvider({ offers, children }: CartProviderProps) {
       clearTimeout(syncTimeoutRef.current);
     }
 
-    console.log("[CartProvider] Scheduling sync for cart:", cart, "isLoading:", isLoading);
-    
     // Устанавливаем новый таймаут для синхронизации (500ms debounce)
     syncTimeoutRef.current = setTimeout(() => {
-      // Проверяем isLoading еще раз при вызове, так как он мог измениться
-      // Но мы уже проверили его в useEffect, так что просто вызываем синхронизацию
-      console.log("[CartProvider] Executing scheduled sync");
       syncWithServer.current(cart);
     }, 500);
 
@@ -264,4 +341,5 @@ export function useCart(): CartContextValue {
   }
   return ctx;
 }
+
 

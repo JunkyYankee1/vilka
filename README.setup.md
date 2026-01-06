@@ -3,8 +3,10 @@
 ## Fresh Start (Fully Containerized)
 
 ### Prerequisites
-- **Docker** and **Docker Compose** installed (that's all you need!)
-- **Optional (for IDE support)**: Node.js 20+ and npm installed locally for TypeScript IntelliSense in your editor
+- **Docker Desktop** (or Docker Engine + Docker Compose) installed
+  - Windows/Mac: Install [Docker Desktop](https://www.docker.com/products/docker-desktop)
+  - Linux: Install Docker Engine and Docker Compose plugin
+- **Optional (for IDE support only)**: Node.js 20+ and npm installed locally for TypeScript IntelliSense in your editor (not required to run the app)
 
 ### Quick Start
 
@@ -56,9 +58,11 @@ This installs type definitions (`@types/node`, `next`, etc.) locally so your IDE
 
 ### Environment Variables
 
-All environment variables are configured in `docker-compose.yml` with sensible defaults. No `.env` file is required for basic operation.
+**For Docker (default):** All environment variables are configured in `docker-compose.yml` with sensible defaults. **No `.env` file is required** for basic operation.
 
-Optional: Create `.env.local` to override defaults (e.g., `OLLAMA_MODEL=llama3.1:8b-instruct` for a larger model).
+**Optional overrides:** Create `.env.local` to override defaults (e.g., `OLLAMA_MODEL=llama3.1:8b-instruct` for a larger model). See `.env.example` for available variables.
+
+**Note:** When running in Docker, the app uses service names (e.g., `postgres`, `redis`, `minio`) for internal communication. When running locally (outside Docker), use `localhost` instead.
 
 ### Clean Restart
 

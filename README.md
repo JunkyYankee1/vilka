@@ -4,14 +4,14 @@ Next.js приложение для онлайн-сервиса быстрой �
 
 ## 🚀 Quick Start (Fully Containerized)
 
-**Prerequisites:** Docker and Docker Compose (that's all!)
+**Prerequisites:** Docker Desktop (or Docker Engine + Docker Compose)
 
 ```bash
 # Clone the repository
 git clone <repository-url>
 cd vilka
 
-# Start everything
+# Start everything (builds images and starts all services)
 docker compose up --build
 ```
 
@@ -20,8 +20,13 @@ docker compose up --build
 That's it! The app will:
 - ✅ Auto-initialize the database with schema and seed data
 - ✅ Start all required services (PostgreSQL, Redis, MinIO, Ollama)
-- ✅ Install all dependencies inside Docker
-- ✅ Start the Next.js development server
+- ✅ Install all dependencies inside Docker (no local Node.js required)
+- ✅ Start the Next.js development server with hot reload
+
+**To stop and clean up:**
+```bash
+docker compose down -v  # Removes containers and volumes
+```
 
 See [README.setup.md](./README.setup.md) for detailed setup instructions and troubleshooting.
 
@@ -32,6 +37,7 @@ See [README.setup.md](./README.setup.md) for detailed setup instructions and tro
 - **[README.smart-cart.md](./README.smart-cart.md)** - Smart cart system documentation
 - **[README.ai.md](./README.ai.md)** - AI assistant (LLM) documentation
 - **[README.zabbix.md](./README.zabbix.md)** - Monitoring setup
+- **[ПОИСК.md](./ПОИСК.md)** - Menu search system documentation (in Russian)
 
 ## 🛠️ Tech Stack
 

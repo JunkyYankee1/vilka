@@ -12,6 +12,7 @@ import BrandedOfferCard from "@/components/BrandedOfferCard";
 import { MenuOptionButton } from "@/components/MenuOptionButton";
 import { QuantityControls } from "@/components/QuantityControls";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { SearchResults } from "@/components/SearchResults";
 import { Heart } from "lucide-react";
 import { CartProvider, useCart } from "@/modules/cart/cartContext";
 import { buildCatalogIndexes } from "@/modules/catalog/indexes";
@@ -107,6 +108,17 @@ function CatalogUI({
   // #endregion
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchHint, setSearchHint] = useState<string | undefined>(undefined);
+  const [isSearchResultsOpen, setIsSearchResultsOpen] = useState(false);
+  const [isSearching, setIsSearching] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchAbortControllerRef = useRef<AbortController | null>(null);
+  
+  // Client-side query cache (30-60s TTL)
+  const searchCacheRef = useRef<Map<string, { data: any; timestamp: number }>>(new Map());
+  const SEARCH_CACHE_TTL_MS = 45 * 1000; // 45 seconds
   const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
   const [deliverySlot, setDeliverySlot] = useState<string>("asap");
   const [lineNotes, setLineNotes] = useState<Record<string, { comment: string; allowReplacement: boolean }>>(
@@ -154,24 +166,219 @@ function CatalogUI({
     if (next.itemId !== activeItemId) setActiveItemId(next.itemId);
   }, [activeCategoryId, activeSubcategoryId, activeItemId, indexes]);
 
+  // Improved search with backend API (debounced, with AbortController and cache)
   useEffect(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return;
-    if (catalog.baseItems.length === 0) return;
-
-    const matchedItem =
-      catalog.baseItems.find((i) => i.name.toLowerCase().includes(q)) ||
-      catalog.baseItems.find((i) => (i.description ?? "").toLowerCase().includes(q));
-
-    if (!matchedItem) return;
-
-    setActiveCategoryId(matchedItem.categoryId);
-    setActiveSubcategoryId(matchedItem.subcategoryId);
-    setActiveItemId(matchedItem.id);
-    setExpandedCategoryIds((prev) =>
-      prev.includes(matchedItem.categoryId) ? prev : [...prev, matchedItem.categoryId]
-    );
+    const q = searchQuery.trim();
+    
+    // Abort previous request if still in flight
+    if (searchAbortControllerRef.current) {
+      searchAbortControllerRef.current.abort();
+      searchAbortControllerRef.current = null;
+    }
+    
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    if (!q) {
+      setSearchResults([]);
+      setIsSearchResultsOpen(false);
+      setIsSearching(false);
+      return;
+    }
+    
+    // Check cache first
+    const cacheKey = q.toLowerCase();
+    const cached = searchCacheRef.current.get(cacheKey);
+    const now = Date.now();
+    
+    if (cached && (now - cached.timestamp) < SEARCH_CACHE_TTL_MS) {
+      // Cache hit - use cached data immediately
+      const data = cached.data;
+      const results = data.results || [];
+      setSearchResults(results);
+      setSearchHint(data.hint);
+      setIsSearchResultsOpen(results.length > 0 || !!data.hint);
+      setIsSearching(false);
+      
+      // Handle auto-navigation from cache
+      if (data.shouldAutoNavigate && results.length === 1) {
+        const result = results[0];
+        const offer = catalog.offers.find((o) => o.id === String(result.id));
+        if (offer) {
+          const baseItem = catalog.baseItems.find((bi) => bi.id === offer.baseItemId);
+          if (baseItem) {
+            setActiveCategoryId(baseItem.categoryId);
+            setActiveSubcategoryId(baseItem.subcategoryId);
+            setActiveItemId(baseItem.id);
+            setExpandedCategoryIds((prev) =>
+              prev.includes(baseItem.categoryId) ? prev : [...prev, baseItem.categoryId]
+            );
+            setIsSearchResultsOpen(false);
+            setSearchQuery("");
+          }
+        }
+      }
+      return;
+    }
+    
+    // Debounce search (400ms for better UX)
+    setIsSearching(true);
+    searchTimeoutRef.current = setTimeout(async () => {
+      // Create new AbortController for this request
+      const abortController = new AbortController();
+      searchAbortControllerRef.current = abortController;
+      
+      try {
+        const isDev = process.env.NODE_ENV === "development";
+        const response = await fetch(
+          `/api/search?q=${encodeURIComponent(q)}&limit=10${isDev ? "&debug=true" : ""}`,
+          { signal: abortController.signal }
+        );
+        
+        // Check if request was aborted
+        if (abortController.signal.aborted) {
+          return;
+        }
+        
+        const data = await response.json();
+        
+        if (data.error) {
+          console.error("[search] Error:", data.error);
+          setSearchResults([]);
+          setIsSearchResultsOpen(false);
+          return;
+        }
+        
+        // Cache the result
+        searchCacheRef.current.set(cacheKey, {
+          data,
+          timestamp: now,
+        });
+        
+        // Clean up old cache entries (keep only last 50)
+        if (searchCacheRef.current.size > 50) {
+          const entries = Array.from(searchCacheRef.current.entries());
+          entries.sort((a, b) => b[1].timestamp - a[1].timestamp);
+          searchCacheRef.current = new Map(entries.slice(0, 50));
+        }
+        
+        const results = data.results || [];
+        setSearchResults(results);
+        setSearchHint(data.hint);
+        setIsSearchResultsOpen(results.length > 0 || !!data.hint);
+        
+        // Auto-navigate ONLY when exactly 1 confident match exists
+        // The API now returns shouldAutoNavigate=true only when:
+        // - resultsCount === 1
+        // - query length >= 4
+        // - resultScore >= AUTO_OPEN_MIN_SCORE (8)
+        if (data.shouldAutoNavigate && results.length === 1) {
+          const result = results[0];
+          // Find the offer for this menu item
+          const offer = catalog.offers.find((o) => o.id === String(result.id));
+          if (offer) {
+            const baseItem = catalog.baseItems.find((bi) => bi.id === offer.baseItemId);
+            if (baseItem) {
+              setActiveCategoryId(baseItem.categoryId);
+              setActiveSubcategoryId(baseItem.subcategoryId);
+              setActiveItemId(baseItem.id);
+              setExpandedCategoryIds((prev) =>
+                prev.includes(baseItem.categoryId) ? prev : [...prev, baseItem.categoryId]
+              );
+              setIsSearchResultsOpen(false);
+              setSearchQuery("");
+            }
+          }
+        }
+        
+        if (isDev && data.debug) {
+          console.log("[search] Debug:", data.debug);
+        }
+      } catch (error: any) {
+        // Ignore abort errors
+        if (error.name === "AbortError") {
+          return;
+        }
+        console.error("[search] Fetch error:", error);
+        setSearchResults([]);
+        setIsSearchResultsOpen(false);
+      } finally {
+        if (!abortController.signal.aborted) {
+          setIsSearching(false);
+          searchAbortControllerRef.current = null;
+        }
+      }
+    }, 400); // 400ms debounce
+    
+    return () => {
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+      }
+      if (searchAbortControllerRef.current) {
+        searchAbortControllerRef.current.abort();
+        searchAbortControllerRef.current = null;
+      }
+    };
   }, [searchQuery, catalog]);
+
+  // Close search results on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        isSearchResultsOpen &&
+        !target.closest('[data-search-results]') &&
+        !target.closest('[data-search-input]')
+      ) {
+        setIsSearchResultsOpen(false);
+      }
+    };
+
+    if (isSearchResultsOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [isSearchResultsOpen]);
+
+  // Close search results when route changes (item selected)
+  useEffect(() => {
+    if (activeItemId) {
+      setIsSearchResultsOpen(false);
+    }
+  }, [activeItemId]);
+
+  // Helper functions to map menu_item_id to catalog IDs
+  const getItemId = (menuItemId: number): BaseItemId | null => {
+    const offer = catalog.offers.find((o) => o.id === String(menuItemId));
+    return offer?.baseItemId || null;
+  };
+
+  const getCategoryId = (menuItemId: number): CategoryId | null => {
+    const baseItemId = getItemId(menuItemId);
+    if (!baseItemId) return null;
+    const baseItem = catalog.baseItems.find((bi) => bi.id === baseItemId);
+    return baseItem?.categoryId || null;
+  };
+
+  const getSubcategoryId = (menuItemId: number): SubcategoryId | null => {
+    const baseItemId = getItemId(menuItemId);
+    if (!baseItemId) return null;
+    const baseItem = catalog.baseItems.find((bi) => bi.id === baseItemId);
+    return baseItem?.subcategoryId || null;
+  };
+
+  const handleSearchResultSelect = (itemId: BaseItemId, categoryId: CategoryId, subcategoryId: SubcategoryId) => {
+    setActiveCategoryId(categoryId);
+    setActiveSubcategoryId(subcategoryId);
+    setActiveItemId(itemId);
+    setExpandedCategoryIds((prev) =>
+      prev.includes(categoryId) ? prev : [...prev, categoryId]
+    );
+    setIsSearchResultsOpen(false);
+    setSearchQuery("");
+  };
 
   const toggleCategoryExpanded = (categoryId: CategoryId) => {
     setExpandedCategoryIds((prev) =>
@@ -423,15 +630,39 @@ function CatalogUI({
               </Link>
 
               <div className="hidden flex-1 items-center md:flex">
-                <div className="flex w-full items-center gap-3 rounded-full bg-muted px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:shadow-lg">
+                <div className="relative flex w-full items-center gap-3 rounded-full bg-muted px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:shadow-lg">
                   <Search className="h-4 w-4 text-foreground-muted" />
                   <input
+                    ref={searchInputRef}
                     type="text"
                     placeholder="Найти ресторан или блюдо..."
                     value={searchQuery}
                     onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
+                    onFocus={() => {
+                      if (searchResults.length > 0) {
+                        setIsSearchResultsOpen(true);
+                      }
+                    }}
                     className="w-full bg-transparent text-base font-medium text-foreground outline-none placeholder:text-foreground-muted"
+                    data-search-input
                   />
+                  {isSearching && (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-foreground-muted border-t-transparent" />
+                  )}
+                  {isSearchResultsOpen && (
+                    <div data-search-results>
+                      <SearchResults
+                        results={searchResults}
+                        query={searchQuery}
+                        hint={searchHint}
+                        onClose={() => setIsSearchResultsOpen(false)}
+                        onSelectItem={handleSearchResultSelect}
+                        getItemId={getItemId}
+                        getCategoryId={getCategoryId}
+                        getSubcategoryId={getSubcategoryId}
+                      />
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -675,15 +906,37 @@ function CatalogUI({
 
           <div className="sticky top-0 z-30 bg-white/95 backdrop-blur dark:bg-white/10 dark:backdrop-blur-md">
             <div className="mx-auto max-w-7xl px-4 pb-2">
-              <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
+              <div className="relative flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
                 <Search className="h-4 w-4 text-foreground-muted" />
                 <input
                   type="text"
                   placeholder="Найти ресторан или блюдо..."
                   value={searchQuery}
                   onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
+                  onFocus={() => {
+                    if (searchResults.length > 0) {
+                      setIsSearchResultsOpen(true);
+                    }
+                  }}
                   className="w-full bg-transparent text-sm outline-none placeholder:text-foreground-muted"
                 />
+                {isSearching && (
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-foreground-muted border-t-transparent" />
+                )}
+                {isSearchResultsOpen && (
+                  <div data-search-results>
+                    <SearchResults
+                      results={searchResults}
+                      query={searchQuery}
+                      hint={searchHint}
+                      onClose={() => setIsSearchResultsOpen(false)}
+                      onSelectItem={handleSearchResultSelect}
+                      getItemId={getItemId}
+                      getCategoryId={getCategoryId}
+                      getSubcategoryId={getSubcategoryId}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           </div>
