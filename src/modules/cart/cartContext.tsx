@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { PropsWithChildren } from "react";
 
 import { buildCartEntries, calculateTotals, updateCartQuantity } from "./cartMath";
@@ -221,11 +221,18 @@ export function CartProvider({ offers, children }: CartProviderProps) {
     };
   }, [cart, isLoading]);
 
-  const add = (offerId: OfferId) =>
+  // Memoize add and remove functions to prevent unnecessary context value changes
+  const add = useCallback((offerId: OfferId) => {
     setCart((prev) => updateCartQuantity(prev, offerId, 1));
-  const remove = (offerId: OfferId) =>
+  }, []);
+  
+  const remove = useCallback((offerId: OfferId) => {
     setCart((prev) => updateCartQuantity(prev, offerId, -1));
-  const reload = async () => loadCartFromServer.current({ mergeIfHasExisting: false });
+  }, []);
+  
+  const reload = useCallback(async () => {
+    await loadCartFromServer.current({ mergeIfHasExisting: false });
+  }, []);
 
   const entries = useMemo(() => buildCartEntries(cart, offers), [cart, offers]);
   const totals = useMemo(() => calculateTotals(entries), [entries]);
@@ -241,7 +248,7 @@ export function CartProvider({ offers, children }: CartProviderProps) {
       remove,
       reload,
     }),
-    [cart, entries, totals, offerStocks]
+    [cart, entries, totals, offerStocks, add, remove, reload]
   );
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;

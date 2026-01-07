@@ -71,19 +71,16 @@ export function TopBar({
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node;
-      // Don't close if clicking inside the menu - buttons inside will handle their own clicks
-      if (moreMenuRefDesktop.current && moreMenuRefDesktop.current.contains(target)) {
+      // Don't close if clicking inside either menu - buttons inside will handle their own clicks
+      const isInsideDesktop = moreMenuRefDesktop.current?.contains(target);
+      const isInsideMobile = moreMenuRefMobile.current?.contains(target);
+      
+      if (isInsideDesktop || isInsideMobile) {
         return; // Let the button's onClick handle it
       }
-      if (moreMenuRefDesktop.current && !moreMenuRefDesktop.current.contains(target)) {
-        setIsMoreMenuOpen(false);
-      }
-      if (moreMenuRefMobile.current && moreMenuRefMobile.current.contains(target)) {
-        return; // Let the button's onClick handle it
-      }
-      if (moreMenuRefMobile.current && !moreMenuRefMobile.current.contains(target)) {
-        setIsMoreMenuOpen(false);
-      }
+      
+      // Close menu if clicking outside both menus
+      setIsMoreMenuOpen(false);
     };
     // Use 'click' instead of 'mousedown' to allow button onClick to fire first
     document.addEventListener("click", handleClickOutside);

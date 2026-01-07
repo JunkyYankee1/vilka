@@ -2,15 +2,24 @@
 
 import { Moon, Sun } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Prevent hydration mismatch
   useEffect(() => {
     setMounted(true);
+    
+    // Cleanup timeout on unmount
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
   }, []);
 
   // Shared function to trigger shimmer effect with random color variant
@@ -65,11 +74,19 @@ export function ThemeToggle() {
     appShell.style.willChange = "background-position";
     
     // Remove transition class after animation completes (2s animation + 100ms buffer)
-    setTimeout(() => {
-      appShell.classList.remove("theme-transitioning");
-      appShell.removeAttribute("data-shimmer-variant");
-      appShell.style.removeProperty("--gradient-direction");
-      appShell.style.willChange = "auto";
+    // Clear any existing timeout before setting a new one
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    
+    timeoutRef.current = setTimeout(() => {
+      if (appShell) {
+        appShell.classList.remove("theme-transitioning");
+        appShell.removeAttribute("data-shimmer-variant");
+        appShell.style.removeProperty("--gradient-direction");
+        appShell.style.willChange = "auto";
+      }
+      timeoutRef.current = null;
     }, 2100);
   };
 

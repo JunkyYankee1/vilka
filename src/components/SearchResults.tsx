@@ -122,6 +122,22 @@ export function SearchResults({
   }, [results]);
 
   // Keyboard navigation
+  // Use refs for stable function references to avoid unnecessary effect re-runs
+  const onSelectItemRef = useRef(onSelectItem);
+  const onCloseRef = useRef(onClose);
+  const getItemIdRef = useRef(getItemId);
+  const getCategoryIdRef = useRef(getCategoryId);
+  const getSubcategoryIdRef = useRef(getSubcategoryId);
+
+  // Update refs when props change
+  useEffect(() => {
+    onSelectItemRef.current = onSelectItem;
+    onCloseRef.current = onClose;
+    getItemIdRef.current = getItemId;
+    getCategoryIdRef.current = getCategoryId;
+    getSubcategoryIdRef.current = getSubcategoryId;
+  }, [onSelectItem, onClose, getItemId, getCategoryId, getSubcategoryId]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (results.length === 0) return;
@@ -139,25 +155,25 @@ export function SearchResults({
           e.preventDefault();
           if (selectedIndex >= 0 && selectedIndex < results.length) {
             const result = results[selectedIndex];
-            const itemId = getItemId(result.id);
-            const categoryId = getCategoryId(result.id);
-            const subcategoryId = getSubcategoryId(result.id);
+            const itemId = getItemIdRef.current(result.id);
+            const categoryId = getCategoryIdRef.current(result.id);
+            const subcategoryId = getSubcategoryIdRef.current(result.id);
             if (itemId && categoryId && subcategoryId) {
-              onSelectItem(itemId, categoryId, subcategoryId);
-              onClose();
+              onSelectItemRef.current(itemId, categoryId, subcategoryId);
+              onCloseRef.current();
             }
           }
           break;
         case "Escape":
           e.preventDefault();
-          onClose();
+          onCloseRef.current();
           break;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [results, selectedIndex, onSelectItem, onClose, getItemId, getCategoryId, getSubcategoryId]);
+  }, [results, selectedIndex]);
 
   // Scroll selected item into view
   useEffect(() => {

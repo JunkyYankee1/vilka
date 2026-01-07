@@ -88,6 +88,7 @@ function CatalogUI({
     telegram?: { username?: string | null; firstName?: string | null; lastName?: string | null } | null;
   } | null>(null);
   const [pendingAddOfferId, setPendingAddOfferId] = useState<number | null>(null);
+  const pendingAddProcessedRef = useRef(false); // Guard to prevent multiple adds
   const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   // Важно: desktop и mobile хедеры одновременно в DOM (только CSS скрывает),
   // поэтому один ref на два элемента ломает "click outside" (закрывает меню до клика по пунктам).
@@ -279,13 +280,43 @@ function CatalogUI({
     }
   }, [urlCategoryId, urlSubcategoryId, urlItemId, activeCategoryId, activeSubcategoryId, activeItemId, baseItemByIdMap]);
 
+  // Track previous validated result to prevent infinite loops
+  const prevValidatedRef = useRef<string | null>(null);
+  const prevCategoryRef = useRef<CategoryId | null>(null);
+
   useEffect(() => {
-    const next = ensureValidSelection(
-      { categoryId: activeCategoryId, subcategoryId: activeSubcategoryId, itemId: activeItemId },
-      indexes
-    );
-    if (next.subcategoryId !== activeSubcategoryId) setActiveSubcategoryId(next.subcategoryId);
-    if (next.itemId !== activeItemId) setActiveItemId(next.itemId);
+    const currentSelection = {
+      categoryId: activeCategoryId,
+      subcategoryId: activeSubcategoryId,
+      itemId: activeItemId,
+    };
+
+    // Reset validation tracking if category changed externally (e.g., from URL)
+    if (activeCategoryId !== prevCategoryRef.current) {
+      prevValidatedRef.current = null;
+      prevCategoryRef.current = activeCategoryId;
+    }
+
+    const next = ensureValidSelection(currentSelection, indexes);
+    
+    // Create a stable key for the validated result
+    const validatedKey = `${activeCategoryId}-${next.subcategoryId}-${next.itemId}`;
+
+    // Skip if we've already validated to this exact state (prevents infinite loop)
+    if (validatedKey === prevValidatedRef.current) {
+      return;
+    }
+
+    // Only update if values actually changed
+    if (next.subcategoryId !== activeSubcategoryId) {
+      setActiveSubcategoryId(next.subcategoryId);
+    }
+    if (next.itemId !== activeItemId) {
+      setActiveItemId(next.itemId);
+    }
+
+    // Update ref to track what we validated (use the NEXT state, not current)
+    prevValidatedRef.current = `${activeCategoryId}-${next.subcategoryId}-${next.itemId}`;
   }, [activeCategoryId, activeSubcategoryId, activeItemId, indexes]);
 
   // Improved search with backend API (debounced, with AbortController, cache, and robust error handling)
@@ -644,15 +675,23 @@ function CatalogUI({
   const handleCategoryClick = (categoryId: CategoryId) => {
     isUserInitiatedChangeRef.current = true;
     setActiveCategoryId(categoryId);
-    // Reset deeper levels: user should explicitly choose subcategory (2nd) and item (3rd).
-    setActiveSubcategoryId(null);
+    
+    // Auto-select first subcategory if available
+    const subs = indexes.subcategoriesByCategory.get(categoryId) ?? [];
+    const firstSubcategoryId = subs.length > 0 ? subs[0].id : null;
+    setActiveSubcategoryId(firstSubcategoryId);
     setActiveItemId(null);
     toggleCategoryExpanded(categoryId);
     
     // Update URL
     const params = new URLSearchParams(searchParams.toString());
     params.set("category", categoryId);
-    params.delete("subcategory");
+    if (firstSubcategoryId) {
+      params.set("subcategory", firstSubcategoryId);
+    } else {
+      params.delete("subcategory");
+    }
+    params.delete("item");
     router.replace(`${pathname}?${params.toString()}`, { scroll: false });
   };
 
@@ -1426,22 +1465,26 @@ function CatalogUI({
                 )}
               </div>
 
-              {itemsForSubcategory.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {itemsForSubcategory.map((item) => (
-                    <MenuOptionButton
-                      key={item.id}
-                      onClick={() => handleItemClick(item.id)}
-                      isSelected={activeItemId === item.id}
-                      variant="primary"
-                      aria-label={`Выбрать блюдо: ${item.name}`}
-                    >
-                      {item.name}
-                    </MenuOptionButton>
-                  ))}
-                </div>
+              {activeSubcategoryId ? (
+                itemsForSubcategory.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {itemsForSubcategory.map((item) => (
+                      <MenuOptionButton
+                        key={item.id}
+                        onClick={() => handleItemClick(item.id)}
+                        isSelected={activeItemId === item.id}
+                        variant="primary"
+                        aria-label={`Выбрать блюдо: ${item.name}`}
+                      >
+                        {item.name}
+                      </MenuOptionButton>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-xs text-foreground-muted">В этой подкатегории пока нет блюд</div>
+                )
               ) : (
-                <div className="text-xs text-foreground-muted">Загрузка блюд…</div>
+                <div className="text-xs text-foreground-muted">Выберите подкатегорию слева</div>
               )}
 
               {activeItemId && currentItem ? (
@@ -1700,8 +1743,16 @@ function CatalogUI({
         onClose={() => {
           setIsAuthOpen(false);
           setPendingAddOfferId(null);
+          pendingAddProcessedRef.current = false; // Reset guard on close
         }}
         onSuccess={async () => {
+          // Guard: prevent multiple calls
+          if (pendingAddProcessedRef.current) {
+            devLog("onSuccess already processed, skipping");
+            return;
+          }
+          pendingAddProcessedRef.current = true;
+
           // После успешного входа загружаем информацию о пользователе
           console.log("[CatalogUI] onSuccess called, fetching user data");
           try {
@@ -1734,6 +1785,11 @@ function CatalogUI({
           } catch (err) {
             devError("Failed to load user after auth:", err);
             // Не выбрасываем ошибку, чтобы модалка закрылась
+          } finally {
+            // Reset guard after a delay to allow for retries if needed
+            setTimeout(() => {
+              pendingAddProcessedRef.current = false;
+            }, 2000);
           }
         }}
       />

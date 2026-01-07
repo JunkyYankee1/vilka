@@ -96,7 +96,8 @@ function HomePageContent({ homeData, isLoading, catalog }: HomePageContentProps)
           setCurrentAddressLabel(primary.address || "Указать адрес доставки");
         }
       } catch (err) {
-        // Silently ignore
+        // Log error but don't show to user (address is optional)
+        devError("[HomePage] Failed to fetch addresses:", err);
       }
     })();
   }, [user]);
