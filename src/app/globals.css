@@ -195,7 +195,7 @@ iframe,
 .theme-transitioning h5,
 .theme-transitioning h6,
 .theme-transitioning a:not([class*="bg-"]):not([class*="button"]),
-.theme-transitioning button:not([class*="bg-brand"]):not([class*="bg-slate-900"]):not([class*="bg-emerald"]),
+.theme-transitioning button:not([class*="bg-card"]),
 .theme-transitioning label,
 .theme-transitioning input[type="text"]:not([class*="bg-"]),
 .theme-transitioning input[type="tel"]:not([class*="bg-"]),
@@ -207,7 +207,7 @@ iframe,
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: var(--shimmer-animation, text-shimmer-left-right) 2s ease-in-out;
+  animation: text-shimmer 2s ease-in-out;
   color: transparent;
 }
 
@@ -240,11 +240,35 @@ iframe,
   color: transparent;
 }
 
-/* Ensure buttons and links with backgrounds still show shimmer on text */
-.theme-transitioning[data-shimmer-variant] button[class*="bg-brand"],
-.theme-transitioning[data-shimmer-variant] button[class*="bg-slate-900"],
-.theme-transitioning[data-shimmer-variant] button[class*="bg-emerald"],
-.theme-transitioning[data-shimmer-variant] a[class*="bg-"] {
+/* Explicitly disable shimmer for elements marked as shimmer-excluded (to keep them fully readable) */
+.theme-transitioning [data-shimmer-exclude],
+.theme-transitioning [data-shimmer-exclude] * {
+  /* Keep original backgrounds from Tailwind classes; only remove gradient/text tricks */
+  background-image: none !important;
+  background-clip: border-box !important;
+  -webkit-background-clip: border-box !important;
+  -webkit-text-fill-color: rgb(var(--foreground)) !important;
+  color: rgb(var(--foreground)) !important;
+  animation: none !important;
+}
+
+/* Special handling for buttons with bg-card - ensure gradient shows on text while preserving button background */
+.theme-transitioning[data-shimmer-variant] button[class*="bg-card"] {
+  background-image: var(--gradient-direction, linear-gradient(90deg, currentColor 0%, currentColor 20%, #8b5cf6 30%, #3b82f6 40%, #8b5cf6 50%, currentColor 60%, currentColor 100%)),
+                    linear-gradient(to bottom, rgb(var(--card)), rgb(var(--card)));
+  background-size: 200% auto, 100% 100%;
+  background-clip: text, border-box;
+  -webkit-background-clip: text, border-box;
+  -webkit-text-fill-color: transparent;
+  animation: text-shimmer 2s ease-in-out;
+  color: transparent;
+}
+
+/* Ensure buttons and links with backgrounds still show shimmer on text (but exclude bg-card) */
+.theme-transitioning[data-shimmer-variant] button[class*="bg-brand"]:not([class*="bg-card"]),
+.theme-transitioning[data-shimmer-variant] button[class*="bg-slate-900"]:not([class*="bg-card"]),
+.theme-transitioning[data-shimmer-variant] button[class*="bg-emerald"]:not([class*="bg-card"]),
+.theme-transitioning[data-shimmer-variant] a[class*="bg-"]:not([class*="bg-card"]) {
   background-clip: text;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -273,7 +297,6 @@ iframe,
   color: initial !important;
   animation: none !important;
 }
-
 
 /* Ensure text remains readable during transition */
 .theme-transitioning *::selection {

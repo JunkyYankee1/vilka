@@ -1,6 +1,7 @@
 "use client";
 
-import { type ReactNode, isValidElement } from "react";
+import { type ReactNode, type CSSProperties, isValidElement } from "react";
+import { useTheme } from "next-themes";
 
 type MenuOptionButtonProps = {
   children: ReactNode;
@@ -28,6 +29,8 @@ export function MenuOptionButton({
   type = "button",
   "aria-label": ariaLabel,
 }: MenuOptionButtonProps) {
+  const { theme } = useTheme();
+  const isDark = theme === "dark";
   // Ensure children is not empty - if it is, don't render the button
   const hasContent =
     (typeof children === "string" && children.trim().length > 0) ||
@@ -43,7 +46,7 @@ export function MenuOptionButton({
 
   const variantClasses = {
     default: isSelected
-      ? "bg-slate-900 text-white shadow-sm hover:bg-slate-800 active:bg-slate-900 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600"
+      ? "bg-brand text-white shadow-sm hover:bg-brand-dark active:bg-brand-dark dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600"
       : "bg-card text-foreground border border-border shadow-sm hover:bg-hover hover:border-border active:bg-muted dark:bg-slate-800 dark:text-foreground dark:border-slate-700 dark:hover:bg-slate-700",
     primary: isSelected
       ? "!bg-brand !text-white !border-brand border shadow-sm hover:!bg-brand-dark active:!bg-brand-dark"
@@ -57,15 +60,22 @@ export function MenuOptionButton({
 
   // Some environments may apply UA/extension styles that override utility classes after click/focus.
   // Inline style ensures the selected primary option stays green and readable.
-  const selectedPrimaryStyle =
-    variant === "primary" && isSelected
-      ? ({
-          backgroundColor: "#16a34a",
-          color: "#ffffff",
-          borderColor: "#16a34a",
-          WebkitTextFillColor: "#ffffff",
-        } as const)
-      : undefined;
+  // Explicit inline backgrounds/borders to keep pills readable, especially in light theme,
+  // while still allowing text color to be controlled by shimmer / Tailwind classes.
+  let inlineStyle: CSSProperties | undefined;
+
+  if (!isDark) {
+    const isBrandSelected = isSelected && (variant === "primary" || variant === "default");
+    inlineStyle = {
+      backgroundColor: isBrandSelected ? "#16a34a" : "#ffffff",
+      borderColor: isBrandSelected ? "#16a34a" : "#cbd5e1",
+    };
+  } else if (variant === "primary" && isSelected) {
+    inlineStyle = {
+      backgroundColor: "#16a34a",
+      borderColor: "#16a34a",
+    };
+  }
 
   return (
     <button
@@ -73,7 +83,7 @@ export function MenuOptionButton({
       onClick={onClick}
       disabled={isDisabled}
       className={combinedClasses}
-      style={selectedPrimaryStyle}
+      style={inlineStyle}
       aria-pressed={isSelected}
       aria-label={ariaLabel}
     >

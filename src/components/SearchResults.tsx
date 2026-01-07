@@ -172,18 +172,21 @@ export function SearchResults({
 
   if (results.length === 0) {
     return (
-      <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-96 overflow-y-auto rounded-2xl border border-border bg-card shadow-lg dark:border-white/10 dark:bg-slate-800">
+      <div
+        className="absolute left-0 right-0 top-full z-50 mt-2 max-h-96 overflow-y-auto rounded-2xl border border-border bg-white/95 text-slate-900 shadow-lg backdrop-blur dark:border-white/10 dark:bg-slate-800 dark:text-slate-50"
+        data-shimmer-exclude
+      >
         <div className="p-6 text-center">
           {error ? (
             <p className="text-sm font-medium text-red-600 dark:text-red-400">{error}</p>
           ) : hint ? (
-            <p className="text-sm font-medium text-foreground-muted">{hint}</p>
+            <p className="text-sm font-medium text-slate-600 dark:text-slate-300">{hint}</p>
           ) : (
             <>
-              <p className="text-sm font-medium text-foreground-muted">
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-200">
                 Ничего не найдено по запросу &quot;{query}&quot;
               </p>
-              <p className="mt-2 text-xs text-foreground-muted">
+              <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
                 Попробуйте изменить запрос или выберите категорию
               </p>
             </>
@@ -194,17 +197,20 @@ export function SearchResults({
   }
 
   return (
-    <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-96 overflow-y-auto rounded-2xl border border-border bg-card shadow-lg dark:border-white/10 dark:bg-slate-800">
-      <div className="sticky top-0 flex items-center justify-between border-b border-border bg-card px-4 py-2 dark:border-white/10">
-        <span className="text-sm font-semibold text-foreground">
+    <div
+      className="absolute left-0 right-0 top-full z-50 mt-2 max-h-96 overflow-y-auto rounded-2xl border border-border bg-white/95 text-slate-900 shadow-lg backdrop-blur dark:border-white/10 dark:bg-slate-800 dark:text-slate-50"
+      data-shimmer-exclude
+    >
+      <div className="sticky top-0 flex items-center justify-between border-b border-border bg-white/95 px-4 py-2 dark:border-white/10 dark:bg-slate-800">
+        <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
           Найдено: {results.length}
         </span>
         <button
           onClick={onClose}
-          className="rounded-full p-1 hover:bg-hover dark:hover:bg-white/10"
+          className="rounded-full p-1 hover:bg-slate-100 dark:hover:bg-white/10"
           aria-label="Закрыть"
         >
-          <X className="h-4 w-4 text-foreground-muted" />
+          <X className="h-4 w-4 text-slate-500 dark:text-slate-400" />
         </button>
       </div>
       <div ref={listRef} className="divide-y divide-border dark:divide-white/10">
@@ -245,11 +251,11 @@ export function SearchResults({
                 </div>
               )}
               <div className="flex-1 min-w-0">
-                <h3 className="text-sm font-semibold text-foreground line-clamp-1">
+                <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-50 line-clamp-1">
                   {highlightMatches(result.name, query)}
                 </h3>
                 {result.description && (
-                  <p className="mt-1 text-xs text-foreground-muted line-clamp-2">
+                  <p className="mt-1 text-xs text-slate-600 dark:text-slate-300 line-clamp-2">
                     {highlightMatches(result.description, query)}
                   </p>
                 )}
@@ -259,11 +265,11 @@ export function SearchResults({
                       -{result.discount_percent}%
                     </span>
                   )}
-                  <span className="text-sm font-bold text-foreground">
+                  <span className="text-sm font-bold text-slate-900 dark:text-slate-50">
                     {finalPrice} ₽
                   </span>
                   {result.discount_percent && (
-                    <span className="text-xs text-foreground-muted line-through">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 line-through">
                       {result.price} ₽
                     </span>
                   )}
@@ -275,7 +281,7 @@ export function SearchResults({
                     onSelectItem(itemId, categoryId, subcategoryId);
                     onClose();
                   }}
-                  className="flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-hover dark:border-white/10 dark:hover:bg-white/10"
+                  className="flex items-center gap-1 rounded-lg border border-border bg-white px-3 py-1.5 text-xs font-medium text-slate-900 shadow-sm hover:bg-slate-100 dark:border-white/10 dark:bg-slate-800 dark:text-slate-50 dark:hover:bg-slate-700"
                   aria-label="Открыть"
                 >
                   <ExternalLink className="h-3 w-3" />
