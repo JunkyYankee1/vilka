@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
-import { ShoppingBag, MapPin, User, Search, Clock, ChevronRight, MessageCircle } from "lucide-react";
+import { ShoppingBag, MapPin, User, Search, Clock, ChevronRight, MessageCircle, MoreVertical } from "lucide-react";
 
 import AuthModal from "@/components/AuthModal";
 import AddressModal from "@/components/AddressModal";
@@ -13,11 +13,14 @@ import { MenuOptionButton } from "@/components/MenuOptionButton";
 import { QuantityControls } from "@/components/QuantityControls";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { SearchResults } from "@/components/SearchResults";
+import { CatalogFilters, filterOffers, type CatalogFilters as CatalogFiltersType } from "@/components/CatalogFilters";
+import { ActiveFilterChips } from "@/components/ActiveFilterChips";
 import { Heart } from "lucide-react";
 import { CartProvider, useCart } from "@/modules/cart/cartContext";
 import { buildCatalogIndexes } from "@/modules/catalog/indexes";
 import { ensureValidSelection, type Selection } from "@/modules/catalog/selection";
 import type { BaseItemId, CatalogData, CategoryId, SubcategoryId } from "@/modules/catalog/types";
+import { queryStringToFilters, updateURLFilters } from "@/lib/filterUtils";
 
 type CatalogPageClientProps = {
   catalog: CatalogData;
@@ -119,11 +122,24 @@ function CatalogUI({
     telegram?: { username?: string | null; firstName?: string | null; lastName?: string | null } | null;
   } | null>(null);
   const [pendingAddOfferId, setPendingAddOfferId] = useState<number | null>(null);
-  const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
+  const [isMoreMenuOpen, setIsMoreMenuOpen] = useState(false);
   // Важно: desktop и mobile хедеры одновременно в DOM (только CSS скрывает),
   // поэтому один ref на два элемента ломает "click outside" (закрывает меню до клика по пунктам).
-  const profileDropdownRefDesktop = useRef<HTMLDivElement | null>(null);
-  const profileDropdownRefMobile = useRef<HTMLDivElement | null>(null);
+  const moreMenuRefDesktop = useRef<HTMLDivElement | null>(null);
+  const moreMenuRefMobile = useRef<HTMLDivElement | null>(null);
+
+  // Filters state
+  const [filters, setFilters] = useState<CatalogFiltersType>(() => {
+    if (typeof window !== "undefined") {
+      return queryStringToFilters(new URLSearchParams(window.location.search));
+    }
+    return {
+      minPrice: null,
+      maxPrice: null,
+      spicy: "any",
+      vegetarian: "any",
+    };
+  });
 
   // анимация "надавливания" для карточек (через capture, чтобы работало даже если внутри stopPropagation)
   // Замените существующее состояние pressedCardId на:
@@ -421,6 +437,45 @@ function CatalogUI({
     }
   }, [activeItemId]);
 
+  // Initialize filters from URL on mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlFilters = queryStringToFilters(new URLSearchParams(window.location.search));
+      setFilters(urlFilters);
+    }
+  }, []);
+
+  // Update URL when filters change
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      updateURLFilters(filters, searchQuery || undefined);
+    }
+  }, [filters, searchQuery]);
+
+  const handleFiltersChange = (newFilters: CatalogFiltersType) => {
+    setFilters(newFilters);
+  };
+
+  const handleResetFilters = () => {
+    const defaultFilters: CatalogFiltersType = {
+      minPrice: null,
+      maxPrice: null,
+      spicy: "any",
+      vegetarian: "any",
+    };
+    setFilters(defaultFilters);
+  };
+
+  const handleRemoveFilter = (key: keyof CatalogFiltersType, value: any) => {
+    const newFilters = { ...filters };
+    if (key === "minPrice" || key === "maxPrice") {
+      newFilters[key] = null;
+    } else {
+      newFilters[key] = value;
+    }
+    setFilters(newFilters);
+  };
+
   // Helper functions to map menu_item_id to catalog IDs
   const getItemId = (menuItemId: number): BaseItemId | null => {
     const offer = catalog.offers.find((o) => o.id === String(menuItemId));
@@ -511,8 +566,14 @@ function CatalogUI({
     [activeItemId, indexes]
   );
 
-  const anonOffer = offersForItem.find((o) => o.isAnonymous);
-  const brandedOffers = offersForItem.filter((o) => !o.isAnonymous);
+  // Apply filters to offers
+  const filteredOffers = useMemo(
+    () => filterOffers(offersForItem, filters),
+    [offersForItem, filters]
+  );
+
+  const anonOffer = filteredOffers.find((o) => o.isAnonymous);
+  const brandedOffers = filteredOffers.filter((o) => !o.isAnonymous);
 
   const cartButtonLabel = totals.totalPrice > 0 ? `${totals.totalPrice} ₽` : "0 ₽";
   const cartCountLabel = totals.totalCount > 0 ? `${totals.totalCount}` : "0";
@@ -673,16 +734,16 @@ function CatalogUI({
       if (!target) return;
 
       const inDesktop =
-        profileDropdownRefDesktop.current ? profileDropdownRefDesktop.current.contains(target) : false;
+        moreMenuRefDesktop.current ? moreMenuRefDesktop.current.contains(target) : false;
       const inMobile =
-        profileDropdownRefMobile.current ? profileDropdownRefMobile.current.contains(target) : false;
+        moreMenuRefMobile.current ? moreMenuRefMobile.current.contains(target) : false;
 
       if (!inDesktop && !inMobile) {
-        setIsProfileDropdownOpen(false);
+        setIsMoreMenuOpen(false);
       }
     };
 
-    if (isProfileDropdownOpen) {
+    if (isMoreMenuOpen) {
       // Важно: используем "click", а не "mousedown", иначе меню может закрыться
       // на mousedown и "Выйти" не успевает обработать клик/переход.
       document.addEventListener("click", handleClickOutside);
@@ -690,7 +751,7 @@ function CatalogUI({
         document.removeEventListener("click", handleClickOutside);
       };
     }
-  }, [isProfileDropdownOpen]);
+  }, [isMoreMenuOpen]);
 
   return (
     <main className="flex h-screen flex-col overflow-hidden bg-transparent transition-colors dark:bg-background">
@@ -708,84 +769,87 @@ function CatalogUI({
                 </div>
               </Link>
 
-              <div className="hidden flex-1 items-center md:flex">
-                <div className="relative flex w-full items-center gap-3 rounded-full bg-card border border-border px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:shadow-lg dark:border-white/10">
-                  <Search className="h-4 w-4 text-foreground-muted" />
-                  <input
-                    ref={searchInputRef}
-                    type="text"
-                    placeholder="Найти ресторан или блюдо..."
-                    value={searchQuery}
-                    onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
-                    onFocus={() => {
-                      if (searchResults.length > 0) {
-                        setIsSearchResultsOpen(true);
-                      }
-                    }}
-                    className="w-full bg-transparent text-base font-medium text-foreground outline-none placeholder:text-foreground-muted"
-                    data-search-input
+              <div className="hidden flex-1 flex-col gap-2 md:flex">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex flex-1 items-center gap-3 rounded-full bg-card border border-border px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:backdrop-blur-md dark:shadow-lg dark:border-white/10">
+                    <Search className="h-4 w-4 text-foreground-muted" />
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      placeholder="Найти ресторан или блюдо..."
+                      value={searchQuery}
+                      onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
+                      onFocus={() => {
+                        if (searchResults.length > 0) {
+                          setIsSearchResultsOpen(true);
+                        }
+                      }}
+                      className="w-full bg-transparent text-base font-medium text-foreground outline-none placeholder:text-foreground-muted"
+                      data-search-input
+                    />
+                    {isSearching && (
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-foreground-muted border-t-transparent" />
+                    )}
+                    {isSearchResultsOpen && (
+                      <div data-search-results>
+                        <SearchResults
+                          results={searchResults}
+                          query={searchQuery}
+                          hint={searchHint}
+                          error={searchError}
+                          onClose={() => setIsSearchResultsOpen(false)}
+                          onSelectItem={handleSearchResultSelect}
+                          getItemId={getItemId}
+                          getCategoryId={getCategoryId}
+                          getSubcategoryId={getSubcategoryId}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  {/* Filter button */}
+                  <CatalogFilters
+                    filters={filters}
+                    onFiltersChange={handleFiltersChange}
+                    onReset={handleResetFilters}
                   />
-                  {isSearching && (
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-foreground-muted border-t-transparent" />
-                  )}
-                  {isSearchResultsOpen && (
-                    <div data-search-results>
-                      <SearchResults
-                        results={searchResults}
-                        query={searchQuery}
-                        hint={searchHint}
-                        error={searchError}
-                        onClose={() => setIsSearchResultsOpen(false)}
-                        onSelectItem={handleSearchResultSelect}
-                        getItemId={getItemId}
-                        getCategoryId={getCategoryId}
-                        getSubcategoryId={getSubcategoryId}
-                      />
-                    </div>
-                  )}
                 </div>
+                {/* Active filter chips */}
+                <ActiveFilterChips filters={filters} onRemoveFilter={handleRemoveFilter} />
               </div>
 
               <div className="ml-auto flex items-center gap-3">
                 <ThemeToggle />
-                {user && (
-                  <button
-                    type="button"
-                    onClick={() => setIsAssistantOpen(true)}
-                    className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20 md:flex"
-                  >
-                    <MessageCircle className="h-3.5 w-3.5" />
-                    <span>Чат‑бот</span>
-                  </button>
-                )}
+                {/* Address button - primary if no address, neutral if selected */}
                 {user && (
                   <button
                     type="button"
                     onClick={() => setIsAddressOpen(true)}
-                    className="hidden items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20 md:flex"
+                    className={`hidden items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm md:flex ${
+                      currentAddressLabel === "Указать адрес доставки"
+                        ? "border-brand bg-brand text-white hover:bg-brand-dark"
+                        : "border-border bg-card text-foreground hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
+                    }`}
                   >
                     <MapPin className="h-3.5 w-3.5" />
                     <span className="max-w-[220px] truncate">{currentAddressLabel}</span>
                   </button>
                 )}
 
+                {/* More menu button */}
                 {user ? (
-                  <div className="relative hidden md:block" ref={profileDropdownRefDesktop}>
+                  <div className="relative hidden md:block" ref={moreMenuRefDesktop}>
                     <button
                       type="button"
-                      onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
-                      className="flex items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
+                      onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
+                      className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
                     >
-                      <User className="h-3.5 w-3.5" />
-                      <span>Профиль</span>
-                      <svg className={`h-3 w-3 transition-transform ${isProfileDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                      </svg>
+                      <MoreVertical className="h-4 w-4" />
                     </button>
 
-                    {isProfileDropdownOpen && (
+                    {isMoreMenuOpen && (
                       <div className="absolute right-0 z-50 mt-2 w-48 rounded-2xl border border-slate-300 bg-slate-800 shadow-lg dark:border-white/20 dark:bg-slate-800">
                         <div className="p-2">
+                          {/* User info */}
                           <div className="px-3 py-2 text-xs text-white">
                             {user.phone.startsWith("tg:")
                               ? user.telegram?.username
@@ -795,10 +859,22 @@ function CatalogUI({
                                 : "Telegram"
                               : user.phone}
                           </div>
+                          {/* Chatbot */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsAssistantOpen(true);
+                              setIsMoreMenuOpen(false);
+                            }}
+                            className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-white hover:bg-white/20"
+                          >
+                            <MessageCircle className="h-3.5 w-3.5" />
+                            <span>Чат‑бот</span>
+                          </button>
+                          {/* Logout */}
                           <a
                             href="/api/auth/logout"
                             onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
-                              // Фоллбек: гарантируем навигацию даже если React/оверлеи вмешаются
                               e.preventDefault();
                               e.stopPropagation();
                               window.location.assign("/api/auth/logout");
@@ -907,30 +983,37 @@ function CatalogUI({
               </div>
             </Link>
 
+            {/* Address button - primary if no address, neutral if selected */}
             {user && (
               <button
                 type="button"
                 onClick={() => setIsAddressOpen(true)}
-                className="flex flex-1 items-center gap-2 rounded-full border border-border bg-card px-3 py-1.5 text-[11px] font-medium text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
+                className={`flex flex-1 items-center gap-2 rounded-full border px-3 py-1.5 text-[11px] font-medium shadow-sm ${
+                  currentAddressLabel === "Указать адрес доставки"
+                    ? "border-brand bg-brand text-white hover:bg-brand-dark"
+                    : "border-border bg-card text-foreground hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
+                }`}
               >
                 <MapPin className="h-3.5 w-3.5" />
                 <span className="truncate">{currentAddressLabel}</span>
               </button>
             )}
 
+            {/* More menu button */}
             {user ? (
-              <div className="relative" ref={profileDropdownRefMobile}>
+              <div className="relative" ref={moreMenuRefMobile}>
                 <button
                   type="button"
-                  onClick={() => setIsProfileDropdownOpen(!isProfileDropdownOpen)}
+                  onClick={() => setIsMoreMenuOpen(!isMoreMenuOpen)}
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50 dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:bg-white/20"
                 >
-                  <User className="h-4 w-4" />
+                  <MoreVertical className="h-4 w-4" />
                 </button>
 
-                {isProfileDropdownOpen && (
+                {isMoreMenuOpen && (
                   <div className="absolute right-0 z-50 mt-2 w-48 rounded-2xl border border-slate-300 bg-slate-800 shadow-lg dark:border-white/20 dark:bg-slate-800">
                     <div className="p-2">
+                      {/* User info */}
                       <div className="px-3 py-2 text-xs text-white">
                         {user.phone.startsWith("tg:")
                           ? user.telegram?.username
@@ -940,6 +1023,19 @@ function CatalogUI({
                             : "Telegram"
                           : user.phone}
                       </div>
+                      {/* Chatbot */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAssistantOpen(true);
+                          setIsMoreMenuOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium text-white hover:bg-white/20"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5" />
+                        <span>Чат‑бот</span>
+                      </button>
+                      {/* Logout */}
                       <a
                         href="/api/auth/logout"
                         onClick={(e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -968,17 +1064,6 @@ function CatalogUI({
               </button>
             )}
 
-            {user && (
-              <button
-                type="button"
-                onClick={() => setIsAssistantOpen(true)}
-                className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-card text-foreground shadow-sm hover:border-slate-300 hover:bg-slate-50"
-                title="Чат‑бот"
-              >
-                <MessageCircle className="h-4 w-4" />
-              </button>
-            )}
-
             <button className="flex h-8 items-center justify-center rounded-full bg-brand px-3 text-[11px] font-semibold text-white shadow-md shadow-brand/30 hover:bg-brand-dark">
               {cartButtonLabel}
             </button>
@@ -986,37 +1071,49 @@ function CatalogUI({
 
           <div className="sticky top-0 z-30 bg-background/95 backdrop-blur dark:bg-white/10 dark:backdrop-blur-md">
             <div className="mx-auto max-w-7xl px-4 pb-2">
-              <div className="relative flex w-full items-center gap-3 rounded-full bg-card border border-border px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:border-white/10">
-                <Search className="h-4 w-4 text-foreground-muted" />
-                <input
-                  type="text"
-                  placeholder="Найти ресторан или блюдо..."
-                  value={searchQuery}
-                  onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
-                  onFocus={() => {
-                    if (searchResults.length > 0) {
-                      setIsSearchResultsOpen(true);
-                    }
-                  }}
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-foreground-muted"
+              <div className="flex items-center gap-2">
+                <div className="relative flex flex-1 items-center gap-3 rounded-full bg-card border border-border px-4 py-2 shadow-vilka-soft dark:bg-white/10 dark:border-white/10">
+                  <Search className="h-4 w-4 text-foreground-muted" />
+                  <input
+                    type="text"
+                    placeholder="Найти ресторан или блюдо..."
+                    value={searchQuery}
+                    onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
+                    onFocus={() => {
+                      if (searchResults.length > 0) {
+                        setIsSearchResultsOpen(true);
+                      }
+                    }}
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-foreground-muted"
+                  />
+                  {isSearching && (
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-foreground-muted border-t-transparent" />
+                  )}
+                  {isSearchResultsOpen && (
+                    <div data-search-results>
+                      <SearchResults
+                        results={searchResults}
+                        query={searchQuery}
+                        hint={searchHint}
+                        onClose={() => setIsSearchResultsOpen(false)}
+                        onSelectItem={handleSearchResultSelect}
+                        getItemId={getItemId}
+                        getCategoryId={getCategoryId}
+                        getSubcategoryId={getSubcategoryId}
+                      />
+                    </div>
+                  )}
+                </div>
+                {/* Filter button for mobile */}
+                <CatalogFilters
+                  filters={filters}
+                  onFiltersChange={handleFiltersChange}
+                  onReset={handleResetFilters}
                 />
-                {isSearching && (
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-foreground-muted border-t-transparent" />
-                )}
-                {isSearchResultsOpen && (
-                  <div data-search-results>
-                    <SearchResults
-                      results={searchResults}
-                      query={searchQuery}
-                      hint={searchHint}
-                      onClose={() => setIsSearchResultsOpen(false)}
-                      onSelectItem={handleSearchResultSelect}
-                      getItemId={getItemId}
-                      getCategoryId={getCategoryId}
-                      getSubcategoryId={getSubcategoryId}
-                    />
-                  </div>
-                )}
+              </div>
+              {/* Active filter chips for mobile */}
+              <div className="mt-2">
+                <ActiveFilterChips filters={filters} onRemoveFilter={handleRemoveFilter} />
               </div>
             </div>
           </div>
@@ -1317,17 +1414,18 @@ function CatalogUI({
               )}
 
               {activeItemId && currentItem ? (
-                renderOffersBlock(currentItem, offersForItem)
+                renderOffersBlock(currentItem, filteredOffers)
               ) : itemsForSubcategory.length > 0 ? (
                 <div className="flex flex-col gap-10">
                   {itemsForSubcategory.map((item) => {
                     const offers = indexes.offersByBaseItem.get(item.id) ?? [];
                     if (offers.length === 0) return null;
+                    const filtered = filterOffers(offers, filters);
 
                     return (
                       <div key={item.id} className="flex flex-col gap-6">
                         <h2 className="text-4xl font-bold text-foreground">{item.name}</h2>
-                        {renderOffersBlock(item, offers)}
+                        {renderOffersBlock(item, filtered)}
                       </div>
                     );
                   })}
@@ -1453,36 +1551,7 @@ function CatalogUI({
                               </div>
                             </div>
 
-                            <div className="flex flex-col gap-2 rounded-2xl border border-border bg-card px-3 py-2 shadow-sm dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md">
-                              <label className="text-[11px] font-semibold text-foreground-muted">Комментарий для кухни</label>
-                              <textarea
-                                value={noteState.comment}
-                                onChange={(e: { target: { value: string } }) =>
-                                  setLineNotes((prev) => ({
-                                    ...prev,
-                                    [offer.id]: { ...noteState, comment: e.target.value },
-                                  }))
-                                }
-                                rows={2}
-                                className="w-full rounded-xl border border-border bg-card px-2 py-1 text-sm text-foreground outline-none hover:border-slate-300 focus:border-brand dark:border-white/10 dark:bg-white/10 dark:backdrop-blur-md dark:hover:border-white/20"
-                                placeholder="Без лука, соус отдельно..."
-                              />
-                              <label className="inline-flex items-center gap-2 text-[12px] text-foreground-muted">
-                                <input
-                                  type="checkbox"
-                                  checked={noteState.allowReplacement}
-                                  onChange={(e: { target: { checked: boolean } }) =>
-                                    setLineNotes((prev) => ({
-                                      ...prev,
-                                      [offer.id]: { ...noteState, allowReplacement: e.target.checked },
-                                    }))
-                                  }
-                                  className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-                                />
-                                Если нет в наличии — разрешить замену
-                              </label>
-                              {/* TODO: persist comment + replacement policy to backend cart lines */}
-                            </div>
+                            {/* Комментарий для кухни и политика замены временно скрыты */}
                           </div>
                         );
                       })}
