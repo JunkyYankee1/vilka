@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
-import { ShoppingBag, MapPin, User, Search, Clock, ChevronRight, MessageCircle } from "lucide-react";
+import { MapPin, User, Search, Clock, ChevronRight, MessageCircle } from "lucide-react";
 
 import AuthModal from "@/components/AuthModal";
 import AddressModal from "@/components/AddressModal";
@@ -11,13 +11,13 @@ import AnonymousOfferCard from "@/components/AnonymousOfferCard";
 import BrandedOfferCard from "@/components/BrandedOfferCard";
 import { MenuOptionButton } from "@/components/MenuOptionButton";
 import { QuantityControls } from "@/components/QuantityControls";
-import { Heart } from "lucide-react";
 import { CartProvider, useCart } from "@/modules/cart/cartContext";
 import { buildCatalogIndexes } from "@/modules/catalog/indexes";
 import { ensureValidSelection, type Selection } from "@/modules/catalog/selection";
 import type { BaseItemId, CatalogData, CategoryId, SubcategoryId } from "@/modules/catalog/types";
-import { buildSearchIndex, searchMenu, shouldAutoNavigate, type SearchResult } from "@/lib/search/menuSearch";
 import { normalizeRu, normalizeAndTokenizeRu } from "@/lib/search/normalizeRu";
+import { buildQueryVariants } from "@/lib/search/keyboardLayout";
+import { isSimilar } from "@/lib/search/levenshtein";
 
 type CatalogPageClientProps = {
   catalog: CatalogData;
@@ -72,7 +72,7 @@ function CatalogUI({
   catalog,
   indexes,
 }: CatalogPageClientProps & { indexes: CatalogIndexes }) {
-  const { quantities, entries, totals, offerStocks, add, remove } = useCart();
+  const { quantities, entries, totals, offerStocks, add, remove, reload: reloadCart, lastServerMessages } = useCart();
 
   // #region agent log
   useEffect(() => {
@@ -108,21 +108,35 @@ function CatalogUI({
   // #endregion
 
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
-  const [selectedSearchIndex, setSelectedSearchIndex] = useState<number>(-1);
+  // Search index is built for CARD TITLES (offer.menuItemName), not for categories/baseItems.
+  type OfferTitleIndexEntry = {
+    offer: (typeof catalog.offers)[number];
+    normalizedTitle: string;
+    titleTokens: string[];
+  };
+  type OfferTitleSearchResult = { offer: (typeof catalog.offers)[number]; score: number };
+  type SearchSuggestion = { label: string; completion: string; next: string | null };
+
+  const [searchResults, setSearchResults] = useState<OfferTitleSearchResult[]>([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const autoNavTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
-  const [deliverySlot, setDeliverySlot] = useState<string>("asap");
-  const [lineNotes, setLineNotes] = useState<Record<string, { comment: string; allowReplacement: boolean }>>(
-    {}
+  const [searchSuggestions, setSearchSuggestions] = useState<SearchSuggestion[]>([]);
+  const searchAnchorRefDesktop = useRef<HTMLDivElement | null>(null);
+  const searchAnchorRefMobile = useRef<HTMLDivElement | null>(null);
+  const activeSearchAnchorElRef = useRef<HTMLElement | null>(null);
+  const [searchAnchorRect, setSearchAnchorRect] = useState<{ left: number; top: number; width: number } | null>(
+    null
   );
-  const [lineFavorites, setLineFavorites] = useState<Record<string, boolean>>({});
+  // delivery time selection removed
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAddressOpen, setIsAddressOpen] = useState(false);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
   const [currentAddressLabel, setCurrentAddressLabel] = useState<string>("Указать адрес доставки");
-  const [user, setUser] = useState<{ id: number; phone: string; role: string } | null>(null);
+  const [user, setUser] = useState<{
+    id: number;
+    phone: string;
+    role: string;
+    telegram?: { username?: string | null; firstName?: string | null; lastName?: string | null } | null;
+  } | null>(null);
   const [pendingAddOfferId, setPendingAddOfferId] = useState<number | null>(null);
   const [isProfileDropdownOpen, setIsProfileDropdownOpen] = useState(false);
   // Важно: desktop и mobile хедеры одновременно в DOM (только CSS скрывает),
@@ -145,8 +159,21 @@ function CatalogUI({
 
   const { categories, subcategories, baseItems } = catalog;
 
-  // Build search index
-  const searchIndex = useMemo(() => buildSearchIndex(catalog), [catalog]);
+  // Build search index by offers (CARD TITLES)
+  const searchIndex = useMemo(() => {
+    const idx = new Map<string, OfferTitleIndexEntry>();
+    for (const offer of catalog.offers) {
+      const title = offer.menuItemName ?? "";
+      idx.set(offer.id, {
+        offer,
+        normalizedTitle: normalizeRu(title),
+        titleTokens: normalizeAndTokenizeRu(title),
+      });
+    }
+    return idx;
+  }, [catalog.offers]);
+
+  const baseItemById = useMemo(() => new Map(baseItems.map((b) => [b.id, b])), [baseItems]);
 
   useEffect(() => {
     const next = ensureValidSelection(
@@ -157,61 +184,202 @@ function CatalogUI({
     if (next.itemId !== activeItemId) setActiveItemId(next.itemId);
   }, [activeCategoryId, activeSubcategoryId, activeItemId, indexes]);
 
-  // Search logic with debounced auto-navigation
+  const isSearching = searchQuery.trim().length >= 2;
+
+  const clearSearch = () => {
+    if (!searchQuery.trim()) return;
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearchSuggestions([]);
+    setIsSearchFocused(false);
+  };
+
+  const updateSearchAnchorRect = (el: HTMLElement | null) => {
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setSearchAnchorRect({
+      left: Math.max(12, r.left),
+      top: r.bottom - 1,
+      width: Math.max(240, r.width),
+    });
+  };
+
+  // Keep suggestion popup aligned to the active search input while focused
+  useEffect(() => {
+    if (!isSearchFocused) return;
+    const handler = () => updateSearchAnchorRect(activeSearchAnchorElRef.current);
+    handler();
+    window.addEventListener("resize", handler);
+    // capture scroll from nested containers too
+    window.addEventListener("scroll", handler, true);
+    return () => {
+      window.removeEventListener("resize", handler);
+      window.removeEventListener("scroll", handler, true);
+    };
+  }, [isSearchFocused]);
+
+  const maxTypoDistance = (len: number): number => {
+    if (len >= 3 && len <= 6) return 1;
+    if (len >= 7 && len <= 10) return 2;
+    if (len > 10) return 3;
+    return 0;
+  };
+
+  // Search scoring function: ONLY matches against card titles (titleTokens, normalizedTitle)
+  // Does NOT use categories, subcategories, or descriptions
+  const scoreTitleEntry = (
+    entry: OfferTitleIndexEntry,
+    queryTokens: string[],
+    normalizedQuery: string,
+    allowFuzzy: boolean
+  ): { score: number; matchedAll: boolean } => {
+    // Exact / prefix match for the whole title
+    if (normalizedQuery && entry.normalizedTitle === normalizedQuery) return { score: 20, matchedAll: true };
+    if (normalizedQuery && entry.normalizedTitle.startsWith(normalizedQuery)) return { score: 15, matchedAll: true };
+
+    let total = 0;
+    for (const q of queryTokens) {
+      let best = 0;
+      let matched = false;
+
+      for (const t of entry.titleTokens) {
+        if (q === t) {
+          matched = true;
+          best = Math.max(best, 10);
+          continue;
+        }
+        if (t.startsWith(q)) {
+          matched = true;
+          best = Math.max(best, 6);
+          continue;
+        }
+      }
+
+      if (!matched && allowFuzzy) {
+        for (const t of entry.titleTokens) {
+          const maxLen = Math.max(q.length, t.length);
+          const d = maxTypoDistance(maxLen);
+          if (d > 0 && isSimilar(q, t, d)) {
+            matched = true;
+            best = Math.max(best, 4);
+            break;
+          }
+        }
+      }
+
+      if (!matched && entry.normalizedTitle.includes(q)) {
+        matched = true;
+        best = Math.max(best, 3);
+      }
+
+      if (!matched) return { score: 0, matchedAll: false };
+      total += best;
+    }
+
+    if (normalizedQuery && entry.normalizedTitle.includes(normalizedQuery)) total += 2;
+    return { score: total, matchedAll: true };
+  };
+
+  const computeChipSuggestions = (rawQuery: string, results: OfferTitleSearchResult[]): SearchSuggestion[] => {
+    const rawTrimEnd = rawQuery.trimEnd();
+    if (!rawTrimEnd) return [];
+
+    const variants = buildQueryVariants(rawTrimEnd);
+    const candidates = new Map<string, { completion: string; next: string | null; score: number }>();
+
+    for (const v of variants) {
+      const qTokens = normalizeAndTokenizeRu(v);
+      if (qTokens.length === 0) continue;
+
+      for (const r of results.slice(0, 30)) {
+        const entry = searchIndex.get(r.offer.id);
+        const titleTokens = entry?.titleTokens ?? normalizeAndTokenizeRu(r.offer.menuItemName);
+
+        let qi = 0;
+        let lastMatchedTitleIdx = -1;
+        for (let ti = 0; ti < titleTokens.length && qi < qTokens.length; ti++) {
+          const qTok = qTokens[qi];
+          const tTok = titleTokens[ti];
+          const isLast = qi === qTokens.length - 1;
+          const ok = isLast ? tTok.startsWith(qTok) || tTok === qTok : tTok === qTok;
+          if (ok) {
+            lastMatchedTitleIdx = ti;
+            qi++;
+          }
+        }
+        if (qi !== qTokens.length || lastMatchedTitleIdx === -1) continue;
+
+        const completion = titleTokens[lastMatchedTitleIdx] ?? qTokens[qTokens.length - 1];
+        const next = titleTokens[lastMatchedTitleIdx + 1] ?? null;
+
+        const label = next ?? completion;
+        const boost = Math.max(1, Math.round(r.score));
+        const prev = candidates.get(label);
+        candidates.set(label, { completion, next, score: (prev?.score ?? 0) + boost });
+      }
+    }
+
+    return Array.from(candidates.entries())
+      .sort((a, b) => b[1].score - a[1].score || a[0].localeCompare(b[0], "ru"))
+      .slice(0, 6)
+      .map(([label, v]) => ({ label, completion: v.completion, next: v.next }));
+  };
+
+  const applySuggestion = (query: string, s: SearchSuggestion) => {
+    const raw = query;
+    const endsWithSpace = /\s$/.test(raw);
+    const words = raw.trim().length > 0 ? raw.trim().split(/\s+/) : [];
+
+    if (words.length === 0) {
+      const nextParts = [s.completion, ...(s.next ? [s.next] : [])];
+      setSearchQuery(nextParts.join(" ") + " ");
+      return;
+    }
+
+    if (!endsWithSpace) {
+      words[words.length - 1] = s.completion;
+    }
+    if (s.next) words.push(s.next);
+    setSearchQuery(words.join(" ") + " ");
+  };
+
+  // Search logic: filter offers as user types (CARD TITLES only; supports typos + wrong keyboard layout)
   useEffect(() => {
     const q = searchQuery.trim();
     if (!q) {
       setSearchResults([]);
-      setSelectedSearchIndex(-1);
-      // Cancel any pending auto-navigation
-      if (autoNavTimerRef.current) {
-        clearTimeout(autoNavTimerRef.current);
-        autoNavTimerRef.current = null;
-      }
+      setSearchSuggestions([]);
       return;
     }
 
-    const results = searchMenu(searchIndex, q, 10);
-    setSearchResults(results);
-    setSelectedSearchIndex(-1);
+    const variants = buildQueryVariants(q);
+    const allowFuzzy = q.length >= 3;
 
-    // Cancel any pending auto-navigation when query changes
-    if (autoNavTimerRef.current) {
-      clearTimeout(autoNavTimerRef.current);
-      autoNavTimerRef.current = null;
-    }
-
-    // Debounced auto-navigation: only when exactly 1 confident match
-    // Wait 300ms after typing stops before auto-navigating
-    if (shouldAutoNavigate(results, q)) {
-      autoNavTimerRef.current = setTimeout(() => {
-        // Double-check that query hasn't changed and we still have 1 result
-        if (searchQuery.trim() === q && isSearchFocused) {
-          const currentResults = searchMenu(searchIndex, q, 10);
-          if (shouldAutoNavigate(currentResults, q)) {
-            const matchedItem = currentResults[0].item;
-            setActiveCategoryId(matchedItem.categoryId);
-            setActiveSubcategoryId(matchedItem.subcategoryId);
-            setActiveItemId(matchedItem.id);
-            setExpandedCategoryIds((prev) =>
-              prev.includes(matchedItem.categoryId) ? prev : [...prev, matchedItem.categoryId]
-            );
-            // Clear search to hide results
-            setSearchQuery("");
-            setSearchResults([]);
-          }
-        }
-        autoNavTimerRef.current = null;
-      }, 300); // 300ms debounce (between 250-400ms as requested)
-    }
-
-    return () => {
-      if (autoNavTimerRef.current) {
-        clearTimeout(autoNavTimerRef.current);
-        autoNavTimerRef.current = null;
+    const merged = new Map<string, OfferTitleSearchResult>();
+    for (const entry of searchIndex.values()) {
+      let bestScore = 0;
+      for (const v of variants) {
+        const queryTokens = normalizeAndTokenizeRu(v);
+        if (queryTokens.length === 0) continue;
+        const normalizedQuery = normalizeRu(v);
+        const { score, matchedAll } = scoreTitleEntry(entry, queryTokens, normalizedQuery, allowFuzzy);
+        if (matchedAll) bestScore = Math.max(bestScore, score);
       }
-    };
-  }, [searchQuery, searchIndex, isSearchFocused]);
+      if (bestScore >= 3) {
+        merged.set(entry.offer.id, { offer: entry.offer, score: bestScore });
+      }
+    }
+
+    const results = Array.from(merged.values()).sort(
+      (a, b) =>
+        b.score - a.score ||
+        a.offer.menuItemName.length - b.offer.menuItemName.length ||
+        a.offer.menuItemName.localeCompare(b.offer.menuItemName, "ru")
+    );
+
+    setSearchResults(results.slice(0, 80));
+    setSearchSuggestions(computeChipSuggestions(searchQuery, results));
+  }, [searchQuery, searchIndex]);
 
   const toggleCategoryExpanded = (categoryId: CategoryId) => {
     setExpandedCategoryIds((prev) =>
@@ -220,6 +388,7 @@ function CatalogUI({
   };
 
   const handleCategoryClick = (categoryId: CategoryId) => {
+    clearSearch();
     setActiveCategoryId(categoryId);
     // Reset deeper levels: user should explicitly choose subcategory (2nd) and item (3rd).
     setActiveSubcategoryId(null);
@@ -231,6 +400,7 @@ function CatalogUI({
     const sub = subcategories.find((s) => s.id === subcategoryId);
     if (!sub) return;
 
+    clearSearch();
     setActiveCategoryId(sub.categoryId);
     setActiveSubcategoryId(sub.id);
     // 3rd level should be chosen by the user in the main content area.
@@ -242,204 +412,14 @@ function CatalogUI({
     const item = baseItems.find((i) => i.id === itemId);
     if (!item) return;
 
+    clearSearch();
     setActiveCategoryId(item.categoryId);
     setActiveSubcategoryId(item.subcategoryId);
     setActiveItemId(item.id);
     setExpandedCategoryIds((prev) => (prev.includes(item.categoryId) ? prev : [...prev, item.categoryId]));
   };
-
-  const handleSearchResultClick = (result: SearchResult) => {
-    handleItemClick(result.item.id);
-    setSearchQuery("");
-    setSearchResults([]);
-    setIsSearchFocused(false);
-  };
-
-  // Keyboard navigation for search results
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (searchResults.length === 0) return;
-
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setSelectedSearchIndex((prev) => (prev < searchResults.length - 1 ? prev + 1 : prev));
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setSelectedSearchIndex((prev) => (prev > 0 ? prev - 1 : -1));
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      if (selectedSearchIndex >= 0 && selectedSearchIndex < searchResults.length) {
-        handleSearchResultClick(searchResults[selectedSearchIndex]);
-      } else if (searchResults.length > 0) {
-        handleSearchResultClick(searchResults[0]);
-      }
-    } else if (e.key === "Escape") {
-      setSearchQuery("");
-      setSearchResults([]);
-      setIsSearchFocused(false);
-    }
-  };
-
-  // Token-aware highlighting: matches whole tokens, handles prefix matches cleanly
-  const highlightMatch = (text: string, query: string): React.ReactNode => {
-    const normalizedText = normalizeRu(text);
-    const normalizedQuery = normalizeRu(query);
-    const queryTokens = normalizeAndTokenizeRu(query);
-    
-    if (queryTokens.length === 0) return text;
-
-    // Tokenize the title to match against whole tokens
-    const titleTokens = normalizeAndTokenizeRu(text);
-    const normalizedTitleTokens = titleTokens.map(t => normalizeRu(t));
-    
-    // Find which title tokens match query tokens (exact or prefix)
-    const matchedTokenIndices = new Set<number>();
-    for (let i = 0; i < normalizedTitleTokens.length; i++) {
-      const titleToken = normalizedTitleTokens[i];
-      for (const queryToken of queryTokens) {
-        if (titleToken === queryToken || titleToken.startsWith(queryToken)) {
-          matchedTokenIndices.add(i);
-          break;
-        }
-      }
-    }
-
-    if (matchedTokenIndices.size === 0) {
-      // Fallback: try substring matching on original text (case-insensitive)
-      const textLower = text.toLowerCase();
-      const parts: Array<{ text: string; isMatch: boolean }> = [];
-      const matchedRanges: Array<{ start: number; end: number }> = [];
-
-      for (const token of queryTokens) {
-        let searchIndex = 0;
-        while (true) {
-          const index = textLower.indexOf(token.toLowerCase(), searchIndex);
-          if (index === -1) break;
-          matchedRanges.push({ start: index, end: index + token.length });
-          searchIndex = index + 1;
-        }
-      }
-
-      matchedRanges.sort((a, b) => a.start - b.start);
-      const merged: Array<{ start: number; end: number }> = [];
-      for (const range of matchedRanges) {
-        if (merged.length === 0 || merged[merged.length - 1].end < range.start) {
-          merged.push(range);
-        } else {
-          merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, range.end);
-        }
-      }
-
-      let lastIndex = 0;
-      for (const range of merged) {
-        if (range.start > lastIndex) {
-          parts.push({ text: text.slice(lastIndex, range.start), isMatch: false });
-        }
-        parts.push({ text: text.slice(range.start, range.end), isMatch: true });
-        lastIndex = range.end;
-      }
-      if (lastIndex < text.length) {
-        parts.push({ text: text.slice(lastIndex), isMatch: false });
-      }
-
-      if (parts.length === 0) return text;
-
-      return (
-        <>
-          {parts.map((part, i) =>
-            part.isMatch ? (
-              <mark key={i} className="bg-yellow-200 font-semibold">
-                {part.text}
-              </mark>
-            ) : (
-              <span key={i}>{part.text}</span>
-            )
-          )}
-        </>
-      );
-    }
-
-    // Token-based highlighting: reconstruct text with highlighted matched tokens
-    // We need to find the original positions of tokens in the text
-    const parts: Array<{ text: string; isMatch: boolean }> = [];
-    let currentIndex = 0;
-    const textLower = text.toLowerCase();
-    const normalizedTextLower = normalizedText.toLowerCase();
-
-    for (let i = 0; i < titleTokens.length; i++) {
-      const token = titleTokens[i];
-      const normalizedToken = normalizedTitleTokens[i];
-      const isMatched = matchedTokenIndices.has(i);
-
-      // Find the token in the original text (case-insensitive, handle separators)
-      const tokenStart = normalizedTextLower.indexOf(normalizedToken, currentIndex);
-      if (tokenStart === -1) {
-        // Token not found, skip
-        continue;
-      }
-
-      // Find the actual token boundaries in original text
-      // Look for the token pattern, accounting for separators
-      let actualStart = -1;
-      let actualEnd = -1;
-
-      // Try to find token boundaries by matching normalized positions
-      for (let j = currentIndex; j < text.length; j++) {
-        const normalizedSubstring = normalizeRu(text.slice(j, j + token.length * 2));
-        if (normalizedSubstring.startsWith(normalizedToken)) {
-          // Find where this token ends (accounting for separators)
-          let end = j;
-          let normalizedChars = 0;
-          while (end < text.length && normalizedChars < normalizedToken.length) {
-            const char = text[end].toLowerCase();
-            if (/[а-яё]/.test(char) || /[a-z]/.test(char) || /[0-9]/.test(char)) {
-              normalizedChars++;
-            }
-            end++;
-          }
-          actualStart = j;
-          actualEnd = end;
-          break;
-        }
-      }
-
-      if (actualStart === -1) {
-        // Fallback: use approximate position
-        actualStart = currentIndex;
-        actualEnd = Math.min(currentIndex + token.length, text.length);
-      }
-
-      // Add text before this token
-      if (actualStart > currentIndex) {
-        parts.push({ text: text.slice(currentIndex, actualStart), isMatch: false });
-      }
-
-      // Add the token (matched or not)
-      parts.push({ 
-        text: text.slice(actualStart, actualEnd), 
-        isMatch: isMatched 
-      });
-
-      currentIndex = actualEnd;
-    }
-
-    // Add remaining text
-    if (currentIndex < text.length) {
-      parts.push({ text: text.slice(currentIndex), isMatch: false });
-    }
-
-    return (
-      <>
-        {parts.map((part, i) =>
-          part.isMatch ? (
-            <mark key={i} className="bg-yellow-200 font-semibold">
-              {part.text}
-            </mark>
-          ) : (
-            <span key={i}>{part.text}</span>
-          )
-        )}
-      </>
-    );
+    if (e.key === "Escape") clearSearch();
   };
 
   const handleAddToCart = (offerId: number) => {
@@ -470,7 +450,6 @@ function CatalogUI({
   const brandedOffers = offersForItem.filter((o) => !o.isAnonymous);
 
   const cartButtonLabel = totals.totalPrice > 0 ? `${totals.totalPrice} ₽` : "0 ₽";
-  const cartCountLabel = totals.totalCount > 0 ? `${totals.totalCount}` : "0";
 
   const currentCategory = categories.find((c) => c.id === activeCategoryId);
   const currentSubcategory = subcategories.find((s) => s.id === activeSubcategoryId);
@@ -641,11 +620,45 @@ function CatalogUI({
   }, [isProfileDropdownOpen]);
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden bg-surface-soft">
-      <header className="shrink-0 z-40 border-b border-slate-200/70 bg-white/80 backdrop-blur">
+    <main className="flex h-screen flex-col overflow-hidden bg-stone-200/70">
+      {isSearchFocused && (
+        <div
+          className="fixed inset-0 z-30 bg-black/45"
+          onMouseDown={() => setIsSearchFocused(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Search suggestions popup: visually attached to search bar, but rendered outside header */}
+      {isSearchFocused && searchSuggestions.length > 0 && searchAnchorRect && (
+        <div
+          className="fixed z-50"
+          style={{ left: searchAnchorRect.left, top: searchAnchorRect.top, width: searchAnchorRect.width }}
+        >
+          <div
+            className="rounded-b-2xl border border-slate-200 border-t-0 bg-white p-2 shadow-lg"
+            onMouseDown={(e) => e.preventDefault()}
+          >
+            <div className="flex flex-wrap gap-2">
+              {searchSuggestions.map((s) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => applySuggestion(searchQuery, s)}
+                  className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-800 hover:bg-slate-200"
+                >
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      <header className="shrink-0 z-40 border-b border-slate-200/70 bg-stone-50/80 backdrop-blur">
         <div className="hidden md:block">
-          <div className="border-b border-slate-200/70 bg-white/80 backdrop-blur">
-            <div className="mx-auto flex w-full max-w-7xl items-center gap-4 px-6 py-3">
+          <div className="border-b border-slate-200/70 bg-stone-50/80 backdrop-blur">
+            <div className="flex w-full items-center gap-4 px-4 py-3">
               <Link href="/" className="flex items-center gap-2 transition hover:opacity-80">
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
                   <span className="text-lg font-bold text-brand-dark">V</span>
@@ -657,103 +670,35 @@ function CatalogUI({
               </Link>
 
               <div className="hidden flex-1 items-center md:flex">
-                <div className="relative w-full">
-                  <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
-                    <Search className="h-4 w-4 text-slate-500" />
-                    <input
-                      type="text"
-                      placeholder="Найти ресторан или блюдо..."
-                      value={searchQuery}
-                      onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
-                      onKeyDown={handleSearchKeyDown}
-                      onFocus={() => setIsSearchFocused(true)}
-                      onBlur={() => {
-                        // Cancel any pending auto-navigation when input loses focus
-                        if (autoNavTimerRef.current) {
-                          clearTimeout(autoNavTimerRef.current);
-                          autoNavTimerRef.current = null;
-                        }
-                        // Delay to allow click events on results
-                        setTimeout(() => setIsSearchFocused(false), 200);
-                      }}
-                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
-                    />
-                  </div>
-                  {isSearchFocused && searchQuery.trim().length > 0 && (
-                    <div className="absolute z-50 mt-2 w-full rounded-2xl border border-slate-200 bg-white shadow-lg max-h-96 overflow-y-auto">
-                      {searchResults.length > 0 ? (
-                        searchResults.map((result, idx) => {
-                          const item = result.item;
-                          const offers = indexes.offersByBaseItem.get(item.id) ?? [];
-                          const minPrice = offers.length > 0 ? Math.min(...offers.map((o) => o.price)) : null;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => handleSearchResultClick(result)}
-                              onMouseDown={(e) => e.preventDefault()} // Prevent blur before click
-                              className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
-                                idx === selectedSearchIndex ? "bg-slate-100" : ""
-                              } ${idx === 0 ? "rounded-t-2xl" : ""} ${idx === searchResults.length - 1 ? "rounded-b-2xl" : ""}`}
-                            >
-                              <div className="font-semibold text-slate-900 text-sm">
-                                {highlightMatch(item.name, searchQuery)}
-                              </div>
-                              {item.description && (
-                                <div className="text-xs text-slate-600 mt-1 line-clamp-1">
-                                  {item.description}
-                                </div>
-                              )}
-                              {minPrice !== null && (
-                                <div className="text-xs text-slate-500 mt-1">от {minPrice} ₽</div>
-                              )}
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="px-4 py-6 text-center">
-                          <div className="text-sm font-medium text-slate-900 mb-2">
-                            Ничего не найдено
-                          </div>
-                          <div className="text-xs text-slate-600 mb-4">
-                            Попробуйте другой запрос или выберите категорию
-                          </div>
-                          <div className="flex flex-col gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSearchQuery("");
-                                setSearchResults([]);
-                                setIsSearchFocused(false);
-                              }}
-                              className="text-xs font-medium text-brand hover:text-brand-dark underline"
-                            >
-                              Очистить поиск
-                            </button>
-                            {categories.length > 0 && (
-                              <div className="flex flex-wrap gap-2 justify-center mt-2">
-                                {categories.slice(0, 4).map((cat) => (
-                                  <button
-                                    key={cat.id}
-                                    type="button"
-                                    onClick={() => {
-                                      handleCategoryClick(cat.id);
-                                      setSearchQuery("");
-                                      setSearchResults([]);
-                                      setIsSearchFocused(false);
-                                    }}
-                                    className="text-xs px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                                  >
-                                    {cat.name}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                <div ref={searchAnchorRefDesktop} className="relative w-full">
+                  <div
+                    className={[
+                      "w-full overflow-hidden shadow-vilka-soft transition-colors",
+                      isSearchFocused && searchSuggestions.length > 0
+                        ? "rounded-t-2xl rounded-b-none border border-slate-200 bg-white"
+                        : "rounded-full bg-surface-soft",
+                    ].join(" ")}
+                  >
+                    <div className="flex w-full items-center gap-3 px-4 py-2">
+                      <Search className="h-4 w-4 text-slate-500" />
+                      <input
+                        type="text"
+                        placeholder="Найти ресторан или блюдо..."
+                        value={searchQuery}
+                        onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
+                        onKeyDown={handleSearchKeyDown}
+                        onFocus={() => {
+                          activeSearchAnchorElRef.current = searchAnchorRefDesktop.current;
+                          updateSearchAnchorRect(searchAnchorRefDesktop.current);
+                          setIsSearchFocused(true);
+                        }}
+                        onBlur={() => {
+                          setTimeout(() => setIsSearchFocused(false), 200);
+                        }}
+                        className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+                      />
                     </div>
-                  )}
+                  </div>
                 </div>
               </div>
 
@@ -762,10 +707,10 @@ function CatalogUI({
                   <button
                     type="button"
                     onClick={() => setIsAssistantOpen(true)}
-                    className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900 md:flex"
+                    className="hidden h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-slate-300 hover:text-slate-900 md:flex"
+                    aria-label="Чат‑бот"
                   >
                     <MessageCircle className="h-3.5 w-3.5" />
-                    <span>Чат‑бот</span>
                   </button>
                 )}
                 {user && (
@@ -797,7 +742,13 @@ function CatalogUI({
                       <div className="absolute right-0 z-50 mt-2 w-48 rounded-2xl border border-slate-200 bg-white shadow-lg">
                         <div className="p-2">
                           <div className="px-3 py-2 text-xs text-slate-500">
-                            {user.phone}
+                            {user.phone.startsWith("tg:")
+                              ? user.telegram?.username
+                                ? `@${user.telegram.username}`
+                                : user.telegram?.firstName || user.telegram?.lastName
+                                ? `Telegram • ${(user.telegram.firstName ?? "").trim()} ${(user.telegram.lastName ?? "").trim()}`.trim()
+                                : "Telegram"
+                              : user.phone}
                           </div>
                           <a
                             href="/api/auth/logout"
@@ -829,82 +780,14 @@ function CatalogUI({
                   </button>
                 )}
 
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setIsMiniCartOpen((v) => !v)}
-                    className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 shadow-sm hover:border-slate-300"
-                  >
-                    <ShoppingBag className="h-4 w-4" />
-                    <span>
-                      {cartCountLabel} • {cartButtonLabel}
-                    </span>
-                  </button>
-
-                  {isMiniCartOpen && (
-                    <div className="absolute right-0 z-40 mt-2 w-80 rounded-2xl border border-slate-200 bg-white p-3 shadow-lg">
-                      <div className="flex items-center justify-between text-sm font-semibold text-slate-900">
-                        <span>Корзина</span>
-                        <button
-                          type="button"
-                          className="text-xs text-slate-500 underline"
-                          onClick={() => setIsMiniCartOpen(false)}
-                        >
-                          Закрыть
-                        </button>
-                      </div>
-
-                      <div className="mt-2 max-h-60 space-y-2 overflow-auto">
-                        {entries.length === 0 ? (
-                          <div className="text-xs text-slate-500">В корзине пока пусто</div>
-                        ) : (
-                          entries.map(({ offer, quantity }) => {
-                            const isSoldOut =
-                              (((offerStocks[offer.id] ?? offer.stock) ?? 0) as number) <= 0;
-                            return (
-                            <div
-                              key={offer.id}
-                              className="flex items-center justify-between rounded-xl bg-surface-soft px-2 py-2"
-                            >
-                              <div className="min-w-0 flex-1">
-                                <div className="line-clamp-1 text-sm font-semibold text-slate-900">
-                                  {offer.menuItemName}
-                                </div>
-                                <div className="text-[11px] text-slate-500">
-                                  {offer.price} ₽ × {quantity}
-                                </div>
-                              </div>
-
-                              {/* Анимация нажатия на +/- */}
-                              <div className="[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95">
-                                <QuantityControls
-                                  quantity={quantity}
-                                      onAdd={() => handleAddToCart(offer.id)}
-                                  onRemove={() => remove(offer.id)}
-                                  canAdd={!isSoldOut}
-                                  size="sm"
-                                />
-                              </div>
-                            </div>
-                            );
-                          })
-                        )}
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between text-sm font-semibold text-slate-900">
-                        <span>Итого</span>
-                        <span>{cartButtonLabel}</span>
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {/* cart button removed from header (cart is available in sidebar) */}
               </div>
             </div>
           </div>
         </div>
 
         <div className="md:hidden">
-          <div className="mx-auto flex w-full max-w-7xl items-center gap-3 bg-white px-4 pt-3 pb-2">
+          <div className="flex w-full items-center gap-3 bg-white px-3 pt-3 pb-2">
             <Link href="/" className="flex items-center gap-2 transition hover:opacity-80">
               <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
                 <span className="text-base font-bold text-brand-dark">V</span>
@@ -936,7 +819,13 @@ function CatalogUI({
                   <div className="absolute right-0 z-50 mt-2 w-48 rounded-2xl border border-slate-200 bg-white shadow-lg">
                     <div className="p-2">
                       <div className="px-3 py-2 text-xs text-slate-500">
-                        {user.phone}
+                        {user.phone.startsWith("tg:")
+                          ? user.telegram?.username
+                            ? `@${user.telegram.username}`
+                            : user.telegram?.firstName || user.telegram?.lastName
+                            ? `Telegram • ${(user.telegram.firstName ?? "").trim()} ${(user.telegram.lastName ?? "").trim()}`.trim()
+                            : "Telegram"
+                          : user.phone}
                       </div>
                       <a
                         href="/api/auth/logout"
@@ -977,118 +866,48 @@ function CatalogUI({
               </button>
             )}
 
-            <button className="flex h-8 items-center justify-center rounded-full bg-brand px-3 text-[11px] font-semibold text-white shadow-md shadow-brand/30 hover:bg-brand-dark">
-              {cartButtonLabel}
-            </button>
+            {/* cart button removed from header (cart is available in sidebar) */}
           </div>
 
-          <div className="sticky top-0 z-30 bg-white/95 backdrop-blur">
-            <div className="mx-auto max-w-7xl px-4 pb-2">
-              <div className="relative w-full">
-                <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
-                  <Search className="h-4 w-4 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="Найти ресторан или блюдо..."
-                    value={searchQuery}
-                    onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
-                    onKeyDown={handleSearchKeyDown}
-                    onFocus={() => setIsSearchFocused(true)}
-                    onBlur={() => {
-                      // Cancel any pending auto-navigation when input loses focus
-                      if (autoNavTimerRef.current) {
-                        clearTimeout(autoNavTimerRef.current);
-                        autoNavTimerRef.current = null;
-                      }
-                      // Delay to allow click events on results
-                      setTimeout(() => setIsSearchFocused(false), 200);
-                    }}
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
-                  />
-                </div>
-                {isSearchFocused && searchQuery.trim().length > 0 && (
-                  <div className="absolute z-50 mt-2 w-full rounded-2xl border border-slate-200 bg-white shadow-lg max-h-96 overflow-y-auto">
-                    {searchResults.length > 0 ? (
-                      searchResults.map((result, idx) => {
-                        const item = result.item;
-                        const offers = indexes.offersByBaseItem.get(item.id) ?? [];
-                        const minPrice = offers.length > 0 ? Math.min(...offers.map((o) => o.price)) : null;
-                        return (
-                          <button
-                            key={item.id}
-                            type="button"
-                            onClick={() => handleSearchResultClick(result)}
-                            onMouseDown={(e) => e.preventDefault()} // Prevent blur before click
-                            className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
-                              idx === selectedSearchIndex ? "bg-slate-100" : ""
-                            } ${idx === 0 ? "rounded-t-2xl" : ""} ${idx === searchResults.length - 1 ? "rounded-b-2xl" : ""}`}
-                          >
-                            <div className="font-semibold text-slate-900 text-sm">
-                              {highlightMatch(item.name, searchQuery)}
-                            </div>
-                            {item.description && (
-                              <div className="text-xs text-slate-600 mt-1 line-clamp-1">
-                                {item.description}
-                              </div>
-                            )}
-                            {minPrice !== null && (
-                              <div className="text-xs text-slate-500 mt-1">от {minPrice} ₽</div>
-                            )}
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <div className="px-4 py-6 text-center">
-                        <div className="text-sm font-medium text-slate-900 mb-2">
-                          Ничего не найдено
-                        </div>
-                        <div className="text-xs text-slate-600 mb-4">
-                          Попробуйте другой запрос или выберите категорию
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSearchQuery("");
-                              setSearchResults([]);
-                              setIsSearchFocused(false);
-                            }}
-                            className="text-xs font-medium text-brand hover:text-brand-dark underline"
-                          >
-                            Очистить поиск
-                          </button>
-                          {categories.length > 0 && (
-                            <div className="flex flex-wrap gap-2 justify-center mt-2">
-                              {categories.slice(0, 4).map((cat) => (
-                                <button
-                                  key={cat.id}
-                                  type="button"
-                                  onClick={() => {
-                                    handleCategoryClick(cat.id);
-                                    setSearchQuery("");
-                                    setSearchResults([]);
-                                    setIsSearchFocused(false);
-                                  }}
-                                  className="text-xs px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                                >
-                                  {cat.name}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )}
+          <div className="sticky top-0 z-30 bg-stone-50/95 backdrop-blur">
+            <div className="px-3 pb-2">
+              <div ref={searchAnchorRefMobile} className="relative w-full">
+                <div
+                  className={[
+                    "w-full overflow-hidden shadow-vilka-soft transition-colors",
+                    isSearchFocused && searchSuggestions.length > 0
+                      ? "rounded-t-2xl rounded-b-none border border-slate-200 bg-white"
+                      : "rounded-full bg-surface-soft",
+                  ].join(" ")}
+                >
+                  <div className="flex w-full items-center gap-3 px-4 py-2">
+                    <Search className="h-4 w-4 text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="Найти ресторан или блюдо..."
+                      value={searchQuery}
+                      onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
+                      onKeyDown={handleSearchKeyDown}
+                      onFocus={() => {
+                        activeSearchAnchorElRef.current = searchAnchorRefMobile.current;
+                        updateSearchAnchorRect(searchAnchorRefMobile.current);
+                        setIsSearchFocused(true);
+                      }}
+                      onBlur={() => {
+                        setTimeout(() => setIsSearchFocused(false), 200);
+                      }}
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+                    />
                   </div>
-                )}
+                </div>
               </div>
             </div>
           </div>
         </div>
       </header>
 
-      <section className="mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col overflow-hidden px-4 pt-4 md:pt-6">
-        <div className="grid h-full min-h-0 grid-cols-1 items-stretch gap-6 md:grid-cols-[64px_minmax(0,1fr)_320px] lg:grid-cols-[200px_minmax(0,1fr)_320px] xl:grid-cols-[240px_minmax(0,1fr)_320px]">
+      <section className="flex min-h-0 w-full flex-1 flex-col overflow-hidden px-3 pt-3 md:px-4 md:pt-4">
+        <div className="grid h-full min-h-0 grid-cols-1 items-stretch gap-4 md:grid-cols-[64px_minmax(0,1fr)_320px] lg:grid-cols-[200px_minmax(0,1fr)_320px] xl:grid-cols-[240px_minmax(0,1fr)_320px]">
           {/* #region agent log */}
           <aside
             ref={(el: HTMLElement | null) => {
@@ -1291,42 +1110,45 @@ function CatalogUI({
             </div>
           </aside>
 
-          <section className="flex min-w-0 flex-1 min-h-0 flex-col gap-4 overflow-y-auto rounded-3xl border border-slate-100 bg-white p-4 shadow-vilka-soft">
-            {/* Информационный блок */}
-            <div className="rounded-[var(--vilka-radius-xl)] border border-surface-soft bg-white p-5 sm:p-6">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div className="max-w-md">
-                  <div className="inline-flex items-center gap-2 rounded-full bg-surface-soft px-3 py-1 text-xs font-medium text-slate-800">
-                    <Clock className="h-3.5 w-3.5" />
-                    <span>Горячая еда за 25–35 минут</span>
+          <section className="flex min-w-0 flex-1 min-h-0 flex-col gap-3 overflow-y-auto rounded-3xl border border-slate-100 bg-white p-4 shadow-vilka-soft">
+            {!isSearching && (
+              <>
+                {/* Информационный блок */}
+                <div className="rounded-[var(--vilka-radius-xl)] border border-surface-soft bg-white p-5 sm:p-6">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="max-w-md">
+                      <div className="inline-flex items-center gap-2 rounded-full bg-surface-soft px-3 py-1 text-xs font-medium text-slate-800">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span>Горячая еда за 25–35 минут</span>
+                      </div>
+                      <h1 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">
+                        Рестораны и пекарни
+                        <br />
+                        в одной доставке.
+                      </h1>
+                      <p className="mt-2 text-sm text-slate-600">
+                        Заведения размещают свои блюда в Вилке и могут скрыть бренд. Вы выбираете — анонимное
+                        предложение или конкретный ресторан рядом.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 rounded-3xl bg-surface-soft p-4 text-sm sm:w-64">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-600">Минимальная сумма заказа</span>
+                        <span className="text-sm font-semibold text-slate-900">от 0 ₽</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-slate-600">Доставка из заведений</span>
+                        <span className="text-sm font-semibold text-slate-900">от 0 ₽</span>
+                      </div>
+                      <button className="mt-2 inline-flex items-center justify-center rounded-2xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
+                        Посмотреть заведения
+                      </button>
+                    </div>
                   </div>
-                  <h1 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">
-                    Рестораны и пекарни
-                    <br />
-                    в одной доставке.
-                  </h1>
-                  <p className="mt-2 text-sm text-slate-600">
-                    Заведения размещают свои блюда в Вилке и могут скрыть бренд. Вы выбираете — анонимное
-                    предложение или конкретный ресторан рядом.
-                  </p>
                 </div>
 
-                <div className="flex flex-col gap-2 rounded-3xl bg-surface-soft p-4 text-sm sm:w-64">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-600">Минимальная сумма заказа</span>
-                    <span className="text-sm font-semibold text-slate-900">от 0 ₽</span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-600">Доставка из заведений</span>
-                    <span className="text-sm font-semibold text-slate-900">от 0 ₽</span>
-                  </div>
-                  <button className="mt-2 inline-flex items-center justify-center rounded-2xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
-                    Посмотреть заведения
-                  </button>
-                </div>
-              </div>
-            </div>
-              <div className="text-xs">
+                <div className="text-xs">
                 {/* Level 1: not clickable */}
                 {currentCategory?.name ? (
                   <span className="text-slate-500">{currentCategory.name}</span>
@@ -1367,26 +1189,140 @@ function CatalogUI({
                   </>
                 )}
               </div>
+              </>
+            )}
 
-              {itemsForSubcategory.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {itemsForSubcategory.map((item) => (
-                    <MenuOptionButton
-                      key={item.id}
-                      onClick={() => handleItemClick(item.id)}
-                      isSelected={activeItemId === item.id}
-                      variant="primary"
-                      aria-label={`Выбрать блюдо: ${item.name}`}
-                    >
-                      {item.name}
-                    </MenuOptionButton>
-                  ))}
+            {isSearching ? (
+              searchResults.length === 0 ? (
+                <div className="flex flex-col items-center justify-center rounded-3xl border border-slate-200 bg-white p-10 text-center">
+                  <div className="text-base font-semibold text-slate-900">Ничего такого не нашлось</div>
+                  <div className="mt-2 text-sm text-slate-600">
+                    Попробуйте написать иначе (можно с опечатками или на другой раскладке).
+                  </div>
                 </div>
               ) : (
-                <div className="text-xs text-slate-500">Загрузка блюд…</div>
-              )}
+                <div className="flex flex-col gap-10">
+                  {/* Two separate grids in search: anonymous offers and branded offers */}
+                  {searchResults.some((r) => r.offer.isAnonymous) ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-slate-900">Анонимные предложения</span>
+                        <span className="text-[11px] text-slate-500">Подберём самый дешёвый и ближайший вариант</span>
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {searchResults
+                          .filter((r) => r.offer.isAnonymous)
+                          .map((r) => {
+                            const offer = r.offer;
+                            const isPressed = pressedCardId === offer.id;
+                            const subtitle = baseItemById.get(offer.baseItemId)?.description ?? "";
+                            return (
+                              <div
+                                key={offer.id}
+                                className={[
+                                  "transform-gpu cursor-pointer select-none transition-transform duration-100 ease-out hover:-translate-y-0.5",
+                                  "[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95",
+                                  isPressed ? "scale-95" : "",
+                                ].join(" ")}
+                                onPointerDownCapture={() => setPressedCardId(offer.id)}
+                                onPointerUpCapture={() =>
+                                  setPressedCardId((prev) => (prev === offer.id ? null : prev))
+                                }
+                                onPointerCancelCapture={() =>
+                                  setPressedCardId((prev) => (prev === offer.id ? null : prev))
+                                }
+                                onPointerLeave={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
+                              >
+                                <AnonymousOfferCard
+                                  name={offer.menuItemName}
+                                  price={offer.price}
+                                  oldPrice={offer.oldPrice}
+                                  tag={offer.tag}
+                                  subtitle={subtitle}
+                                  imageUrl={offer.imageUrl ?? undefined}
+                                  quantity={quantities[offer.id] ?? 0}
+                                  isSoldOut={((offerStocks[offer.id] ?? offer.stock) ?? 0) <= 0}
+                                  onAdd={() => handleAddToCart(offer.id)}
+                                  onRemove={() => remove(offer.id)}
+                                />
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  ) : null}
 
-              {activeItemId && currentItem ? (
+                  {searchResults.some((r) => !r.offer.isAnonymous) ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm font-semibold text-slate-900">Обычные предложения</span>
+                        <span className="text-[11px] text-slate-500">Заведения, которые показывают свой бренд</span>
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {searchResults
+                          .filter((r) => !r.offer.isAnonymous)
+                          .map((r) => {
+                            const offer = r.offer;
+                            const isPressed = pressedCardId === offer.id;
+                            const subtitle = baseItemById.get(offer.baseItemId)?.description ?? "";
+                            return (
+                              <div
+                                key={offer.id}
+                                className={[
+                                  "transform-gpu cursor-pointer select-none transition-transform duration-100 ease-out hover:-translate-y-0.5",
+                                  "[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95",
+                                  isPressed ? "scale-95" : "",
+                                ].join(" ")}
+                                onPointerDownCapture={() => setPressedCardId(offer.id)}
+                                onPointerUpCapture={() =>
+                                  setPressedCardId((prev) => (prev === offer.id ? null : prev))
+                                }
+                                onPointerCancelCapture={() =>
+                                  setPressedCardId((prev) => (prev === offer.id ? null : prev))
+                                }
+                                onPointerLeave={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
+                              >
+                                <BrandedOfferCard
+                                  itemName={offer.menuItemName}
+                                  brand={offer.brand}
+                                  price={offer.price}
+                                  oldPrice={offer.oldPrice}
+                                  tag={offer.tag}
+                                  subtitle={subtitle}
+                                  imageUrl={offer.imageUrl ?? undefined}
+                                  quantity={quantities[offer.id] ?? 0}
+                                  isSoldOut={((offerStocks[offer.id] ?? offer.stock) ?? 0) <= 0}
+                                  onAdd={() => handleAddToCart(offer.id)}
+                                  onRemove={() => remove(offer.id)}
+                                />
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )
+            ) : itemsForSubcategory.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {itemsForSubcategory.map((item) => (
+                  <MenuOptionButton
+                    key={item.id}
+                    onClick={() => handleItemClick(item.id)}
+                    isSelected={activeItemId === item.id}
+                    variant="primary"
+                    aria-label={`Выбрать блюдо: ${item.name}`}
+                  >
+                    {item.name}
+                  </MenuOptionButton>
+                ))}
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500">Загрузка блюд…</div>
+            )}
+
+            {!isSearching &&
+              (activeItemId && currentItem ? (
                 renderOffersBlock(currentItem, offersForItem)
               ) : itemsForSubcategory.length > 0 ? (
                 <div className="flex flex-col gap-10">
@@ -1402,28 +1338,21 @@ function CatalogUI({
                     );
                   })}
                 </div>
-              ) : null}
+              ) : null)}
           </section>
 
           <aside className="hidden h-full w-full shrink-0 overflow-y-auto lg:block">
-            <div className="flex h-full flex-col gap-3 pb-6">
-              <div className="flex flex-1 flex-col rounded-3xl border border-slate-100 bg-white/95 p-4 shadow-vilka-soft">
-                <h2 className="text-base font-semibold text-slate-900">Доставка 15 минут</h2>
+            <div className="flex h-full flex-col gap-2 pb-4">
+              <div className="flex flex-1 flex-col rounded-3xl border border-slate-100 bg-stone-50/95 p-4 shadow-vilka-soft">
+                <h2 className="text-base font-semibold text-slate-900">Корзина</h2>
 
-                <div className="mt-2">
-                  <label className="text-xs font-semibold text-slate-700">Время доставки</label>
-                  <select
-                    value={deliverySlot}
-                    onChange={(e: { target: { value: string } }) => setDeliverySlot(e.target.value)}
-                    className="mt-1 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none hover:border-slate-300 focus:border-brand"
-                  >
-                    <option value="asap">Как можно скорее</option>
-                    <option value="by-1930">К 19:30</option>
-                    <option value="20-2030">С 20:00 до 20:30</option>
-                    <option value="custom">Другое (указать при оформлении)</option>
-                  </select>
-                  {/* TODO: persist deliverySlot to cart model when backend is ready */}
-                </div>
+                {lastServerMessages.length > 0 && (
+                  <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+                    {lastServerMessages.map((m, idx) => (
+                      <div key={idx}>{m}</div>
+                    ))}
+                  </div>
+                )}
 
                 {totals.totalCount === 0 ? (
                   <div className="mt-3 text-xs text-slate-600">
@@ -1436,8 +1365,6 @@ function CatalogUI({
                         const isSoldOut =
                           (((offerStocks[offer.id] ?? offer.stock) ?? 0) as number) <= 0;
                         const base = baseItems.find((i) => i.id === offer.baseItemId);
-                        const noteState = lineNotes[offer.id] ?? { comment: "", allowReplacement: true };
-
                         return (
                           <div key={offer.id} className="flex flex-col gap-2 rounded-2xl border border-slate-100 p-3">
                             <div className="flex items-start gap-3">
@@ -1465,36 +1392,6 @@ function CatalogUI({
                                   <div className="mt-0.5 text-[11px] text-slate-500">{base.description}</div>
                                 )}
 
-                                <button
-                                  type="button"
-                                  className="mt-1 inline-flex w-fit items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 active:scale-95 transition-transform transform-gpu"
-                                  onClick={async () => {
-                                    const next = !lineFavorites[offer.id];
-                                    setLineFavorites((prev) => ({ ...prev, [offer.id]: next }));
-                                    try {
-                                      await fetch("/api/favorites/toggle", {
-                                        method: "POST",
-                                        headers: { "Content-Type": "application/json" },
-                                        body: JSON.stringify({
-                                          userId: 1,
-                                          menuItemId: Number(offer.baseItemId),
-                                          favorite: next,
-                                        }),
-                                      });
-                                    } catch (e) {
-                                      console.error("favorite toggle failed", e);
-                                    }
-                                  }}
-                                >
-                                  <Heart
-                                    className={[
-                                      "h-3.5 w-3.5",
-                                      lineFavorites[offer.id] ? "fill-red-500 stroke-red-500" : "stroke-slate-500",
-                                    ].join(" ")}
-                                  />
-                                  <span>{lineFavorites[offer.id] ? "В избранном" : "В избранное"}</span>
-                                </button>
-
                                 <div className="mt-2 flex items-center justify-between rounded-full bg-surface-soft px-3 py-1.5">
                                   {/* Анимация нажатия на +/- */}
                                   <div className="[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95">
@@ -1516,37 +1413,6 @@ function CatalogUI({
                                 </div>
                               </div>
                             </div>
-
-                            <div className="flex flex-col gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2">
-                              <label className="text-[11px] font-semibold text-slate-700">Комментарий для кухни</label>
-                              <textarea
-                                value={noteState.comment}
-                                onChange={(e: { target: { value: string } }) =>
-                                  setLineNotes((prev) => ({
-                                    ...prev,
-                                    [offer.id]: { ...noteState, comment: e.target.value },
-                                  }))
-                                }
-                                rows={2}
-                                className="w-full rounded-xl border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900 outline-none hover:border-slate-300 focus:border-brand"
-                                placeholder="Без лука, соус отдельно..."
-                              />
-                              <label className="inline-flex items-center gap-2 text-[12px] text-slate-700">
-                                <input
-                                  type="checkbox"
-                                  checked={noteState.allowReplacement}
-                                  onChange={(e: { target: { checked: boolean } }) =>
-                                    setLineNotes((prev) => ({
-                                      ...prev,
-                                      [offer.id]: { ...noteState, allowReplacement: e.target.checked },
-                                    }))
-                                  }
-                                  className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-                                />
-                                Если нет в наличии — разрешить замену
-                              </label>
-                              {/* TODO: persist comment + replacement policy to backend cart lines */}
-                            </div>
                           </div>
                         );
                       })}
@@ -1566,7 +1432,7 @@ function CatalogUI({
               </div>
 
               {totals.totalCount > 0 && (
-                <div className="rounded-3xl bg-white/90 p-3 shadow-vilka-soft">
+                <div className="rounded-3xl bg-stone-50/90 p-3 shadow-vilka-soft">
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
                       <input
@@ -1639,7 +1505,7 @@ function CatalogUI({
         </div>
       </section>
 
-      <footer className="shrink-0 border-t border-slate-200/70 bg-white/80">
+      <footer className="shrink-0 border-t border-slate-200/70 bg-stone-50/80">
         <div className="flex w-full flex-col gap-2 px-6 py-3 text-xs text-slate-600 md:flex-row md:items-center md:justify-between">
           <span>© {new Date().getFullYear()} Вилка. Доставка еды из ресторанов и пекарен.</span>
           <div className="flex flex-wrap gap-3">
@@ -1665,19 +1531,24 @@ function CatalogUI({
           setIsAuthOpen(false);
           setPendingAddOfferId(null);
         }}
-        onSuccess={() => {
+        onSuccess={async () => {
           // После успешного входа загружаем информацию о пользователе
-          fetch("/api/auth/me")
-            .then(res => res.json())
-            .then(data => {
-              setUser(data.user);
-              if (data.user && pendingAddOfferId != null) {
-                add(pendingAddOfferId);
-                setPendingAddOfferId(null);
-                setIsAuthOpen(false);
-              }
-            })
-            .catch(err => console.error("Failed to load user:", err));
+          try {
+            const res = await fetch("/api/auth/me");
+            const data = await res.json().catch(() => ({}));
+            setUser((data as any).user ?? null);
+
+            // IMPORTANT: подтягиваем серверную корзину под новым auth (иначе пустая локальная может затереть user-cart)
+            await reloadCart();
+
+            if ((data as any).user && pendingAddOfferId != null) {
+              add(pendingAddOfferId);
+              setPendingAddOfferId(null);
+              setIsAuthOpen(false);
+            }
+          } catch (err) {
+            console.error("Failed to load user:", err);
+          }
         }}
       />
       <AddressModal

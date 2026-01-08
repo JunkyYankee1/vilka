@@ -49,6 +49,66 @@ const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const cacheKey = (cartToken: string, userId: number | null) => 
   userId ? `cart:user:${userId}` : `cart:${cartToken}`;
 
+async function maybeMigrateAnonymousCartToUser(opts: {
+  redis: ReturnType<typeof getRedis>;
+  cartToken: string;
+  userId: number;
+}): Promise<CanonicalCart | null> {
+  const { redis, cartToken, userId } = opts;
+  if (!redis) return null;
+
+  const anonKey = cacheKey(cartToken, null);
+  const userKey = cacheKey(cartToken, userId);
+
+  let anonRaw: string | null = null;
+  let userRaw: string | null = null;
+
+  try {
+    [anonRaw, userRaw] = await Promise.all([redis.get(anonKey), redis.get(userKey)]);
+  } catch (e) {
+    console.error("[cart cache] migration read failed", e);
+    return null;
+  }
+
+  if (!anonRaw) return null;
+
+  let anonCart: CanonicalCart | null = null;
+  try {
+    anonCart = JSON.parse(anonRaw) as CanonicalCart;
+  } catch (e) {
+    console.error("[cart cache] migration parse anon failed", e);
+    return null;
+  }
+
+  const anonHasItems = Array.isArray(anonCart.items) && anonCart.items.length > 0;
+  if (!anonHasItems) return null;
+
+  let userHasItems = false;
+  if (userRaw) {
+    try {
+      const userCart = JSON.parse(userRaw) as CanonicalCart;
+      userHasItems = Array.isArray(userCart.items) && userCart.items.length > 0;
+    } catch {
+      userHasItems = false;
+    }
+  }
+
+  // Переносим гостевую корзину только если у пользователя корзина отсутствует или пуста.
+  if (!userRaw || !userHasItems) {
+    try {
+      await redis.set(userKey, JSON.stringify({ ...anonCart, cartToken }), { EX: CACHE_TTL_SECONDS });
+      await redis.del(anonKey);
+      console.log("[cart cache] migrated anon cart to user cart", { anonKey, userKey, userId });
+      return { ...anonCart, cartToken };
+    } catch (e) {
+      console.error("[cart cache] migration write failed", e);
+      return null;
+    }
+  }
+
+  return null;
+}
+
 type OfferRow = {
   id: number | string; // PostgreSQL bigint может вернуться как строка
   name: string;
@@ -138,6 +198,16 @@ export async function getOrCreateCart(identity: CartIdentity): Promise<Canonical
     await redis.connect();
   }
 
+  // Если пользователь только что авторизовался, переносим гостевую корзину в пользовательскую
+  if (identity.userId) {
+    const migrated = await maybeMigrateAnonymousCartToUser({
+      redis,
+      cartToken: identity.cartToken,
+      userId: identity.userId,
+    });
+    if (migrated) return migrated;
+  }
+
   const key = cacheKey(identity.cartToken, identity.userId);
   
   try {
@@ -193,6 +263,15 @@ export async function validateAndPersistCart(
     await redis.connect();
   }
 
+  // Перед валидацией убедимся, что гостевая корзина (если есть) перенесена в пользовательскую
+  if (identity.userId) {
+    await maybeMigrateAnonymousCartToUser({
+      redis,
+      cartToken: identity.cartToken,
+      userId: identity.userId,
+    });
+  }
+
   const changes: CartChange[] = [];
 
   // Берём текущее состояние корзины из Redis, чтобы понять "дельту" и корректно
@@ -234,6 +313,13 @@ export async function validateAndPersistCart(
 
       for (const row of res.rows) {
         const rowId = typeof row.id === "string" ? parseInt(row.id, 10) : row.id;
+        const rawStock = (row as any).stock_qty;
+        const stockNum =
+          typeof rawStock === "string"
+            ? parseInt(rawStock, 10)
+            : typeof rawStock === "number"
+            ? rawStock
+            : Number(rawStock);
         offersMap.set(rowId, {
           ...row,
           id: rowId,
@@ -243,7 +329,7 @@ export async function validateAndPersistCart(
               ? parseFloat(row.discount_percent)
               : row.discount_percent
             : null,
-          stock_qty: Number.isFinite((row as any).stock_qty) ? (row as any).stock_qty : 0,
+          stock_qty: Number.isFinite(stockNum) ? stockNum : 0,
         });
       }
 
@@ -300,7 +386,22 @@ export async function validateAndPersistCart(
             // Списываем
             if (offer.stock_qty < delta) {
               // Safety net: не уходим в минус даже при неожиданной рассинхронизации
-              nextQty = prevQty + Math.max(0, offer.stock_qty);
+              const maxAllowed = prevQty + Math.max(0, offer.stock_qty ?? 0);
+              nextQty = maxAllowed;
+              // Важно: если мы тут уменьшили количество, обязательно сообщаем фронту.
+              const alreadyReported = changes.some(
+                (c) => c.type === "quantity_changed" && c.offerId === offerId
+              );
+              if (!alreadyReported) {
+                changes.push({
+                  type: "quantity_changed",
+                  offerId,
+                  message:
+                    maxAllowed > 0
+                      ? `Доступно только ${maxAllowed} шт.`
+                      : "Товар закончился",
+                });
+              }
             } else {
               await client.query(
                 `UPDATE menu_items SET stock_qty = stock_qty - $1 WHERE id = $2`,
