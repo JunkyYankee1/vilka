@@ -29,6 +29,33 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Testing
+
+Run tests locally or in Docker:
+
+### Local Development
+```bash
+# Run tests once
+npm test
+
+# Watch mode (re-runs on file changes)
+npm run test:watch
+
+# UI mode (optional, requires @vitest/ui)
+npm run test:ui
+```
+
+### Docker
+```bash
+# Start containers
+docker compose up -d app
+
+# Run tests inside the app container
+docker compose exec app npm test
+```
+
+Tests are located in `src/**/__tests__/**/*.test.ts` and use [Vitest](https://vitest.dev/).
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.

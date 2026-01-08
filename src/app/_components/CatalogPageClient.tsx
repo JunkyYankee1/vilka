@@ -16,6 +16,8 @@ import { CartProvider, useCart } from "@/modules/cart/cartContext";
 import { buildCatalogIndexes } from "@/modules/catalog/indexes";
 import { ensureValidSelection, type Selection } from "@/modules/catalog/selection";
 import type { BaseItemId, CatalogData, CategoryId, SubcategoryId } from "@/modules/catalog/types";
+import { buildSearchIndex, searchMenu, shouldAutoNavigate, type SearchResult } from "@/lib/search/menuSearch";
+import { normalizeRu, normalizeAndTokenizeRu } from "@/lib/search/normalizeRu";
 
 type CatalogPageClientProps = {
   catalog: CatalogData;
@@ -106,6 +108,10 @@ function CatalogUI({
   // #endregion
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [selectedSearchIndex, setSelectedSearchIndex] = useState<number>(-1);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const autoNavTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isMiniCartOpen, setIsMiniCartOpen] = useState(false);
   const [deliverySlot, setDeliverySlot] = useState<string>("asap");
   const [lineNotes, setLineNotes] = useState<Record<string, { comment: string; allowReplacement: boolean }>>(
@@ -139,6 +145,9 @@ function CatalogUI({
 
   const { categories, subcategories, baseItems } = catalog;
 
+  // Build search index
+  const searchIndex = useMemo(() => buildSearchIndex(catalog), [catalog]);
+
   useEffect(() => {
     const next = ensureValidSelection(
       { categoryId: activeCategoryId, subcategoryId: activeSubcategoryId, itemId: activeItemId },
@@ -148,24 +157,61 @@ function CatalogUI({
     if (next.itemId !== activeItemId) setActiveItemId(next.itemId);
   }, [activeCategoryId, activeSubcategoryId, activeItemId, indexes]);
 
+  // Search logic with debounced auto-navigation
   useEffect(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return;
-    if (catalog.baseItems.length === 0) return;
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      setSelectedSearchIndex(-1);
+      // Cancel any pending auto-navigation
+      if (autoNavTimerRef.current) {
+        clearTimeout(autoNavTimerRef.current);
+        autoNavTimerRef.current = null;
+      }
+      return;
+    }
 
-    const matchedItem =
-      catalog.baseItems.find((i) => i.name.toLowerCase().includes(q)) ||
-      catalog.baseItems.find((i) => (i.description ?? "").toLowerCase().includes(q));
+    const results = searchMenu(searchIndex, q, 10);
+    setSearchResults(results);
+    setSelectedSearchIndex(-1);
 
-    if (!matchedItem) return;
+    // Cancel any pending auto-navigation when query changes
+    if (autoNavTimerRef.current) {
+      clearTimeout(autoNavTimerRef.current);
+      autoNavTimerRef.current = null;
+    }
 
-    setActiveCategoryId(matchedItem.categoryId);
-    setActiveSubcategoryId(matchedItem.subcategoryId);
-    setActiveItemId(matchedItem.id);
-    setExpandedCategoryIds((prev) =>
-      prev.includes(matchedItem.categoryId) ? prev : [...prev, matchedItem.categoryId]
-    );
-  }, [searchQuery, catalog]);
+    // Debounced auto-navigation: only when exactly 1 confident match
+    // Wait 300ms after typing stops before auto-navigating
+    if (shouldAutoNavigate(results, q)) {
+      autoNavTimerRef.current = setTimeout(() => {
+        // Double-check that query hasn't changed and we still have 1 result
+        if (searchQuery.trim() === q && isSearchFocused) {
+          const currentResults = searchMenu(searchIndex, q, 10);
+          if (shouldAutoNavigate(currentResults, q)) {
+            const matchedItem = currentResults[0].item;
+            setActiveCategoryId(matchedItem.categoryId);
+            setActiveSubcategoryId(matchedItem.subcategoryId);
+            setActiveItemId(matchedItem.id);
+            setExpandedCategoryIds((prev) =>
+              prev.includes(matchedItem.categoryId) ? prev : [...prev, matchedItem.categoryId]
+            );
+            // Clear search to hide results
+            setSearchQuery("");
+            setSearchResults([]);
+          }
+        }
+        autoNavTimerRef.current = null;
+      }, 300); // 300ms debounce (between 250-400ms as requested)
+    }
+
+    return () => {
+      if (autoNavTimerRef.current) {
+        clearTimeout(autoNavTimerRef.current);
+        autoNavTimerRef.current = null;
+      }
+    };
+  }, [searchQuery, searchIndex, isSearchFocused]);
 
   const toggleCategoryExpanded = (categoryId: CategoryId) => {
     setExpandedCategoryIds((prev) =>
@@ -200,6 +246,200 @@ function CatalogUI({
     setActiveSubcategoryId(item.subcategoryId);
     setActiveItemId(item.id);
     setExpandedCategoryIds((prev) => (prev.includes(item.categoryId) ? prev : [...prev, item.categoryId]));
+  };
+
+  const handleSearchResultClick = (result: SearchResult) => {
+    handleItemClick(result.item.id);
+    setSearchQuery("");
+    setSearchResults([]);
+    setIsSearchFocused(false);
+  };
+
+  // Keyboard navigation for search results
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (searchResults.length === 0) return;
+
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setSelectedSearchIndex((prev) => (prev < searchResults.length - 1 ? prev + 1 : prev));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setSelectedSearchIndex((prev) => (prev > 0 ? prev - 1 : -1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (selectedSearchIndex >= 0 && selectedSearchIndex < searchResults.length) {
+        handleSearchResultClick(searchResults[selectedSearchIndex]);
+      } else if (searchResults.length > 0) {
+        handleSearchResultClick(searchResults[0]);
+      }
+    } else if (e.key === "Escape") {
+      setSearchQuery("");
+      setSearchResults([]);
+      setIsSearchFocused(false);
+    }
+  };
+
+  // Token-aware highlighting: matches whole tokens, handles prefix matches cleanly
+  const highlightMatch = (text: string, query: string): React.ReactNode => {
+    const normalizedText = normalizeRu(text);
+    const normalizedQuery = normalizeRu(query);
+    const queryTokens = normalizeAndTokenizeRu(query);
+    
+    if (queryTokens.length === 0) return text;
+
+    // Tokenize the title to match against whole tokens
+    const titleTokens = normalizeAndTokenizeRu(text);
+    const normalizedTitleTokens = titleTokens.map(t => normalizeRu(t));
+    
+    // Find which title tokens match query tokens (exact or prefix)
+    const matchedTokenIndices = new Set<number>();
+    for (let i = 0; i < normalizedTitleTokens.length; i++) {
+      const titleToken = normalizedTitleTokens[i];
+      for (const queryToken of queryTokens) {
+        if (titleToken === queryToken || titleToken.startsWith(queryToken)) {
+          matchedTokenIndices.add(i);
+          break;
+        }
+      }
+    }
+
+    if (matchedTokenIndices.size === 0) {
+      // Fallback: try substring matching on original text (case-insensitive)
+      const textLower = text.toLowerCase();
+      const parts: Array<{ text: string; isMatch: boolean }> = [];
+      const matchedRanges: Array<{ start: number; end: number }> = [];
+
+      for (const token of queryTokens) {
+        let searchIndex = 0;
+        while (true) {
+          const index = textLower.indexOf(token.toLowerCase(), searchIndex);
+          if (index === -1) break;
+          matchedRanges.push({ start: index, end: index + token.length });
+          searchIndex = index + 1;
+        }
+      }
+
+      matchedRanges.sort((a, b) => a.start - b.start);
+      const merged: Array<{ start: number; end: number }> = [];
+      for (const range of matchedRanges) {
+        if (merged.length === 0 || merged[merged.length - 1].end < range.start) {
+          merged.push(range);
+        } else {
+          merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, range.end);
+        }
+      }
+
+      let lastIndex = 0;
+      for (const range of merged) {
+        if (range.start > lastIndex) {
+          parts.push({ text: text.slice(lastIndex, range.start), isMatch: false });
+        }
+        parts.push({ text: text.slice(range.start, range.end), isMatch: true });
+        lastIndex = range.end;
+      }
+      if (lastIndex < text.length) {
+        parts.push({ text: text.slice(lastIndex), isMatch: false });
+      }
+
+      if (parts.length === 0) return text;
+
+      return (
+        <>
+          {parts.map((part, i) =>
+            part.isMatch ? (
+              <mark key={i} className="bg-yellow-200 font-semibold">
+                {part.text}
+              </mark>
+            ) : (
+              <span key={i}>{part.text}</span>
+            )
+          )}
+        </>
+      );
+    }
+
+    // Token-based highlighting: reconstruct text with highlighted matched tokens
+    // We need to find the original positions of tokens in the text
+    const parts: Array<{ text: string; isMatch: boolean }> = [];
+    let currentIndex = 0;
+    const textLower = text.toLowerCase();
+    const normalizedTextLower = normalizedText.toLowerCase();
+
+    for (let i = 0; i < titleTokens.length; i++) {
+      const token = titleTokens[i];
+      const normalizedToken = normalizedTitleTokens[i];
+      const isMatched = matchedTokenIndices.has(i);
+
+      // Find the token in the original text (case-insensitive, handle separators)
+      const tokenStart = normalizedTextLower.indexOf(normalizedToken, currentIndex);
+      if (tokenStart === -1) {
+        // Token not found, skip
+        continue;
+      }
+
+      // Find the actual token boundaries in original text
+      // Look for the token pattern, accounting for separators
+      let actualStart = -1;
+      let actualEnd = -1;
+
+      // Try to find token boundaries by matching normalized positions
+      for (let j = currentIndex; j < text.length; j++) {
+        const normalizedSubstring = normalizeRu(text.slice(j, j + token.length * 2));
+        if (normalizedSubstring.startsWith(normalizedToken)) {
+          // Find where this token ends (accounting for separators)
+          let end = j;
+          let normalizedChars = 0;
+          while (end < text.length && normalizedChars < normalizedToken.length) {
+            const char = text[end].toLowerCase();
+            if (/[а-яё]/.test(char) || /[a-z]/.test(char) || /[0-9]/.test(char)) {
+              normalizedChars++;
+            }
+            end++;
+          }
+          actualStart = j;
+          actualEnd = end;
+          break;
+        }
+      }
+
+      if (actualStart === -1) {
+        // Fallback: use approximate position
+        actualStart = currentIndex;
+        actualEnd = Math.min(currentIndex + token.length, text.length);
+      }
+
+      // Add text before this token
+      if (actualStart > currentIndex) {
+        parts.push({ text: text.slice(currentIndex, actualStart), isMatch: false });
+      }
+
+      // Add the token (matched or not)
+      parts.push({ 
+        text: text.slice(actualStart, actualEnd), 
+        isMatch: isMatched 
+      });
+
+      currentIndex = actualEnd;
+    }
+
+    // Add remaining text
+    if (currentIndex < text.length) {
+      parts.push({ text: text.slice(currentIndex), isMatch: false });
+    }
+
+    return (
+      <>
+        {parts.map((part, i) =>
+          part.isMatch ? (
+            <mark key={i} className="bg-yellow-200 font-semibold">
+              {part.text}
+            </mark>
+          ) : (
+            <span key={i}>{part.text}</span>
+          )
+        )}
+      </>
+    );
   };
 
   const handleAddToCart = (offerId: number) => {
@@ -417,15 +657,103 @@ function CatalogUI({
               </Link>
 
               <div className="hidden flex-1 items-center md:flex">
-                <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
-                  <Search className="h-4 w-4 text-slate-500" />
-                  <input
-                    type="text"
-                    placeholder="Найти ресторан или блюдо..."
-                    value={searchQuery}
-                    onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
-                    className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
-                  />
+                <div className="relative w-full">
+                  <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
+                    <Search className="h-4 w-4 text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="Найти ресторан или блюдо..."
+                      value={searchQuery}
+                      onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
+                      onKeyDown={handleSearchKeyDown}
+                      onFocus={() => setIsSearchFocused(true)}
+                      onBlur={() => {
+                        // Cancel any pending auto-navigation when input loses focus
+                        if (autoNavTimerRef.current) {
+                          clearTimeout(autoNavTimerRef.current);
+                          autoNavTimerRef.current = null;
+                        }
+                        // Delay to allow click events on results
+                        setTimeout(() => setIsSearchFocused(false), 200);
+                      }}
+                      className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+                    />
+                  </div>
+                  {isSearchFocused && searchQuery.trim().length > 0 && (
+                    <div className="absolute z-50 mt-2 w-full rounded-2xl border border-slate-200 bg-white shadow-lg max-h-96 overflow-y-auto">
+                      {searchResults.length > 0 ? (
+                        searchResults.map((result, idx) => {
+                          const item = result.item;
+                          const offers = indexes.offersByBaseItem.get(item.id) ?? [];
+                          const minPrice = offers.length > 0 ? Math.min(...offers.map((o) => o.price)) : null;
+                          return (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => handleSearchResultClick(result)}
+                              onMouseDown={(e) => e.preventDefault()} // Prevent blur before click
+                              className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
+                                idx === selectedSearchIndex ? "bg-slate-100" : ""
+                              } ${idx === 0 ? "rounded-t-2xl" : ""} ${idx === searchResults.length - 1 ? "rounded-b-2xl" : ""}`}
+                            >
+                              <div className="font-semibold text-slate-900 text-sm">
+                                {highlightMatch(item.name, searchQuery)}
+                              </div>
+                              {item.description && (
+                                <div className="text-xs text-slate-600 mt-1 line-clamp-1">
+                                  {item.description}
+                                </div>
+                              )}
+                              {minPrice !== null && (
+                                <div className="text-xs text-slate-500 mt-1">от {minPrice} ₽</div>
+                              )}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <div className="px-4 py-6 text-center">
+                          <div className="text-sm font-medium text-slate-900 mb-2">
+                            Ничего не найдено
+                          </div>
+                          <div className="text-xs text-slate-600 mb-4">
+                            Попробуйте другой запрос или выберите категорию
+                          </div>
+                          <div className="flex flex-col gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSearchQuery("");
+                                setSearchResults([]);
+                                setIsSearchFocused(false);
+                              }}
+                              className="text-xs font-medium text-brand hover:text-brand-dark underline"
+                            >
+                              Очистить поиск
+                            </button>
+                            {categories.length > 0 && (
+                              <div className="flex flex-wrap gap-2 justify-center mt-2">
+                                {categories.slice(0, 4).map((cat) => (
+                                  <button
+                                    key={cat.id}
+                                    type="button"
+                                    onClick={() => {
+                                      handleCategoryClick(cat.id);
+                                      setSearchQuery("");
+                                      setSearchResults([]);
+                                      setIsSearchFocused(false);
+                                    }}
+                                    className="text-xs px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                                  >
+                                    {cat.name}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -656,15 +984,103 @@ function CatalogUI({
 
           <div className="sticky top-0 z-30 bg-white/95 backdrop-blur">
             <div className="mx-auto max-w-7xl px-4 pb-2">
-              <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
-                <Search className="h-4 w-4 text-slate-500" />
-                <input
-                  type="text"
-                  placeholder="Найти ресторан или блюдо..."
-                  value={searchQuery}
-                  onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
-                  className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
-                />
+              <div className="relative w-full">
+                <div className="flex w-full items-center gap-3 rounded-full bg-surface-soft px-4 py-2 shadow-vilka-soft">
+                  <Search className="h-4 w-4 text-slate-500" />
+                  <input
+                    type="text"
+                    placeholder="Найти ресторан или блюдо..."
+                    value={searchQuery}
+                    onChange={(e: { target: { value: string } }) => setSearchQuery(e.target.value)}
+                    onKeyDown={handleSearchKeyDown}
+                    onFocus={() => setIsSearchFocused(true)}
+                    onBlur={() => {
+                      // Cancel any pending auto-navigation when input loses focus
+                      if (autoNavTimerRef.current) {
+                        clearTimeout(autoNavTimerRef.current);
+                        autoNavTimerRef.current = null;
+                      }
+                      // Delay to allow click events on results
+                      setTimeout(() => setIsSearchFocused(false), 200);
+                    }}
+                    className="w-full bg-transparent text-sm outline-none placeholder:text-slate-500"
+                  />
+                </div>
+                {isSearchFocused && searchQuery.trim().length > 0 && (
+                  <div className="absolute z-50 mt-2 w-full rounded-2xl border border-slate-200 bg-white shadow-lg max-h-96 overflow-y-auto">
+                    {searchResults.length > 0 ? (
+                      searchResults.map((result, idx) => {
+                        const item = result.item;
+                        const offers = indexes.offersByBaseItem.get(item.id) ?? [];
+                        const minPrice = offers.length > 0 ? Math.min(...offers.map((o) => o.price)) : null;
+                        return (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => handleSearchResultClick(result)}
+                            onMouseDown={(e) => e.preventDefault()} // Prevent blur before click
+                            className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition-colors ${
+                              idx === selectedSearchIndex ? "bg-slate-100" : ""
+                            } ${idx === 0 ? "rounded-t-2xl" : ""} ${idx === searchResults.length - 1 ? "rounded-b-2xl" : ""}`}
+                          >
+                            <div className="font-semibold text-slate-900 text-sm">
+                              {highlightMatch(item.name, searchQuery)}
+                            </div>
+                            {item.description && (
+                              <div className="text-xs text-slate-600 mt-1 line-clamp-1">
+                                {item.description}
+                              </div>
+                            )}
+                            {minPrice !== null && (
+                              <div className="text-xs text-slate-500 mt-1">от {minPrice} ₽</div>
+                            )}
+                          </button>
+                        );
+                      })
+                    ) : (
+                      <div className="px-4 py-6 text-center">
+                        <div className="text-sm font-medium text-slate-900 mb-2">
+                          Ничего не найдено
+                        </div>
+                        <div className="text-xs text-slate-600 mb-4">
+                          Попробуйте другой запрос или выберите категорию
+                        </div>
+                        <div className="flex flex-col gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchQuery("");
+                              setSearchResults([]);
+                              setIsSearchFocused(false);
+                            }}
+                            className="text-xs font-medium text-brand hover:text-brand-dark underline"
+                          >
+                            Очистить поиск
+                          </button>
+                          {categories.length > 0 && (
+                            <div className="flex flex-wrap gap-2 justify-center mt-2">
+                              {categories.slice(0, 4).map((cat) => (
+                                <button
+                                  key={cat.id}
+                                  type="button"
+                                  onClick={() => {
+                                    handleCategoryClick(cat.id);
+                                    setSearchQuery("");
+                                    setSearchResults([]);
+                                    setIsSearchFocused(false);
+                                  }}
+                                  className="text-xs px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
+                                >
+                                  {cat.name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           </div>
