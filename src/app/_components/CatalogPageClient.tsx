@@ -8,6 +8,7 @@ import { MapPin, User, Search, ChevronRight, MessageCircle } from "lucide-react"
 import AuthModal from "@/components/AuthModal";
 import AddressModal from "@/components/AddressModal";
 import AIAssistantModal from "@/components/AIAssistantModal";
+import CheckoutModal from "@/components/checkout/CheckoutModal";
 import AnonymousOfferCard from "@/components/AnonymousOfferCard";
 import BrandedOfferCard from "@/components/BrandedOfferCard";
 import { MenuOptionButton } from "@/components/MenuOptionButton";
@@ -150,6 +151,7 @@ function CatalogUI({
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [isAddressOpen, setIsAddressOpen] = useState(false);
   const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [currentAddressLabel, setCurrentAddressLabel] = useState<string>("Указать адрес доставки");
   const [user, setUser] = useState<{
     id: number;
@@ -1541,6 +1543,7 @@ function CatalogUI({
                     <div className="relative mt-4 pt-4">
                       <button
                         type="button"
+                        onClick={() => setIsCheckoutOpen(true)}
                         className="vilka-btn-primary inline-flex w-full flex-nowrap items-center justify-center gap-2 whitespace-nowrap rounded-[28px] px-6 py-5 text-base font-semibold shadow-lg shadow-black/10 transition-colors focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 active:scale-[0.98] transform-gpu"
                       >
                         <span>Продолжить</span>
@@ -1616,6 +1619,11 @@ function CatalogUI({
       <AIAssistantModal
         isOpen={isAssistantOpen}
         onClose={() => setIsAssistantOpen(false)}
+      />
+      <CheckoutModal
+        isOpen={isCheckoutOpen}
+        onClose={() => setIsCheckoutOpen(false)}
+        baseItems={baseItems}
       />
     </main>
   );
