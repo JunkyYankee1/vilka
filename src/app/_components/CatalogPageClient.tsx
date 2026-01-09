@@ -1624,6 +1624,8 @@ function CatalogUI({
         isOpen={isCheckoutOpen}
         onClose={() => setIsCheckoutOpen(false)}
         baseItems={baseItems}
+        currentAddressLabel={currentAddressLabel}
+        onAddressSelected={(label: string) => setCurrentAddressLabel(label)}
       />
     </main>
   );
