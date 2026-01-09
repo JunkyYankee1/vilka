@@ -53,3 +53,17 @@ docker compose exec postgres psql -U kasashka -d kasashka_db -f /db/migrations/0
 ```
 
 **Важно:** Изменения схемы из миграций уже включены в `01_init.sql`, поэтому при чистой инициализации миграции не нужны.
+
+## Важно про "актуальные данные" при `git pull`
+
+Postgres в `docker compose` использует volume `postgres_data`, поэтому:
+
+- при **первом запуске** (volume пустой) выполнится `db/init/01_init.sql` и вы получите **одинаковую демо-БД** у всех участников
+- при **последующих запусках** init-скрипты не выполняются (данные сохраняются в volume)
+
+Если вы обновили `01_init.sql` и хотите применить его заново, сделайте:
+
+```bash
+docker compose down -v
+docker compose up -d
+```

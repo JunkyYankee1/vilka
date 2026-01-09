@@ -94,6 +94,10 @@ docker compose up postgres -d
 2. Or manually run the init script:
    ```bash
    docker compose exec postgres psql -U kasashka -d kasashka_db -f /docker-entrypoint-initdb.d/01_init.sql
+
+> Важно: init-скрипты из `db/init/` выполняются **только при первом старте** Postgres (когда volume пустой).
+> Если вы обновили `db/init/01_init.sql` и хотите применить изменения/новые демо-данные — удалите volume:
+> `docker compose down -v` (это удалит данные Postgres на машине).
    ```
 
 ## Environment Variables

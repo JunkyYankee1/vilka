@@ -2793,6 +2793,81 @@ ALTER TABLE ONLY public.user_favorite_cuisines
 ALTER TABLE ONLY public.user_profiles
     ADD CONSTRAINT user_profiles_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
 
+--
+-- Added to match repo migrations (02_smart_cart.sql, 03_menu_item_stock.sql)
+--
+
+-- Smart cart enrichment (migrations/02_smart_cart.sql)
+ALTER TABLE public.carts
+  ADD COLUMN IF NOT EXISTS cart_token text,
+  ADD COLUMN IF NOT EXISTS delivery_slot text,
+  ADD COLUMN IF NOT EXISTS tips_amount numeric(10,2),
+  ADD COLUMN IF NOT EXISTS promo_code text,
+  ADD COLUMN IF NOT EXISTS promo_discount numeric(10,2) DEFAULT 0;
+
+-- Ensure cart_token is unique (NULLs allowed, as per Postgres unique semantics)
+CREATE UNIQUE INDEX IF NOT EXISTS carts_cart_token_key ON public.carts USING btree (cart_token);
+
+ALTER TABLE public.cart_items
+  ADD COLUMN IF NOT EXISTS comment text,
+  ADD COLUMN IF NOT EXISTS allow_replacement boolean DEFAULT true,
+  ADD COLUMN IF NOT EXISTS favorite boolean DEFAULT false;
+
+CREATE TABLE IF NOT EXISTS public.saved_carts (
+  id bigserial PRIMARY KEY,
+  user_id bigint NOT NULL,
+  name text NOT NULL,
+  payload jsonb NOT NULL,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.saved_carts OWNER TO kasashka;
+
+CREATE TABLE IF NOT EXISTS public.favorite_items (
+  user_id bigint NOT NULL,
+  menu_item_id bigint NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  PRIMARY KEY (user_id, menu_item_id)
+);
+
+ALTER TABLE public.favorite_items OWNER TO kasashka;
+
+CREATE TABLE IF NOT EXISTS public.cart_shares (
+  id bigserial PRIMARY KEY,
+  token text UNIQUE NOT NULL,
+  payload jsonb NOT NULL,
+  created_at timestamptz DEFAULT now(),
+  created_by bigint
+);
+
+ALTER TABLE public.cart_shares OWNER TO kasashka;
+
+CREATE TABLE IF NOT EXISTS public.cart_events (
+  id bigserial PRIMARY KEY,
+  cart_id bigint NOT NULL,
+  user_id bigint,
+  event_type text NOT NULL,
+  payload jsonb,
+  created_at timestamptz DEFAULT now()
+);
+
+ALTER TABLE public.cart_events OWNER TO kasashka;
+
+-- Stock check constraint (migrations/03_menu_item_stock.sql)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'menu_items_stock_qty_check'
+      AND conrelid = 'public.menu_items'::regclass
+  ) THEN
+    ALTER TABLE public.menu_items
+      ADD CONSTRAINT menu_items_stock_qty_check CHECK (stock_qty >= 0);
+  END IF;
+END
+$$;
+
 
 --
 -- PostgreSQL database dump complete
