@@ -7,6 +7,7 @@
   --vilka-bg: #f5f5f5; /* светло-серый общий фон */
   --vilka-radius-xl: 24px;
   --vilka-shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.07);
+  --vilka-header-h: 0px;
 }
 
 html,

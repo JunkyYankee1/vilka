@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
-import { MapPin, User, Search, Clock, ChevronRight, MessageCircle } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { MapPin, User, Search, ChevronRight, MessageCircle } from "lucide-react";
 
 import AuthModal from "@/components/AuthModal";
 import AddressModal from "@/components/AddressModal";
@@ -26,16 +27,12 @@ type CatalogPageClientProps = {
 type CatalogIndexes = ReturnType<typeof buildCatalogIndexes>;
 
 function getInitialSelection(catalog: CatalogData): Selection {
-  const firstCategory = catalog.categories[0]?.id ?? null;
-  const firstSub = firstCategory
-    ? catalog.subcategories.find((s) => s.categoryId === firstCategory) ?? null
-    : null;
-  const firstItem = firstSub && catalog.baseItems.find((i) => i.subcategoryId === firstSub.id);
-
   return {
-    categoryId: firstCategory,
-    subcategoryId: firstSub?.id ?? null,
-    itemId: firstItem?.id ?? null,
+    // Important: on the main catalog page we start with nothing selected,
+    // so the user sees the 2nd-level category cards overview (like Yandex Lavka).
+    categoryId: null,
+    subcategoryId: null,
+    itemId: null,
   };
 }
 
@@ -68,11 +65,67 @@ function CategoryEmoji({ code }: { code: string }) {
   return <span>{emoji}</span>;
 }
 
+function hashToIndex(s: string, mod: number): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h) % mod;
+}
+
+type CategoryTheme = { from: string; to: string };
+
+function getCategoryTheme(cat: { id: string; name: string }): CategoryTheme {
+  const id = (cat.id ?? "").toLowerCase();
+  const name = (cat.name ?? "").toLowerCase();
+  const has = (s: string) => id.includes(s) || name.includes(s);
+
+  // Warm (bakery / pizza)
+  if (has("bakery") || has("выпеч") || has("пекар") || has("bread") || has("булоч") || has("круас")) {
+    return { from: "from-[#ffe1bf]", to: "to-[#f2b37a]" }; // orange-brown
+  }
+  if (has("pizza") || has("пицц")) {
+    return { from: "from-[#ffd6d6]", to: "to-[#ffb2b2]" }; // warm red
+  }
+
+  // Meat
+  if (has("meat") || has("мяс") || has("говя") || has("свин") || has("кур") || has("птиц") || has("шашл")) {
+    return { from: "from-[#ffd0d6]", to: "to-[#ff9cab]" }; // red-rose
+  }
+
+  // Seafood / fish (cold blue)
+  if (has("seafood") || has("fish") || has("морепр") || has("рыб") || has("икр")) {
+    return { from: "from-[#d8f1ff]", to: "to-[#a8ddff]" }; // blue
+  }
+
+  // Drinks / water (blue)
+  if (has("drinks") || has("water") || has("напит") || has("вода") || has("чай") || has("кофе")) {
+    return { from: "from-[#d6f3ff]", to: "to-[#bfe6fb]" };
+  }
+
+  // Greens / salads (green)
+  if (has("salads") || has("vegan") || has("veget") || has("овощ") || has("фрукт") || has("салат") || has("зел")) {
+    return { from: "from-[#dff5c9]", to: "to-[#bfe59a]" };
+  }
+
+  // Desserts (pink/violet)
+  if (has("desserts") || has("sweet") || has("десерт") || has("торт") || has("пирож") || has("слад")) {
+    return { from: "from-[#ffd8e8]", to: "to-[#ffc0d7]" };
+  }
+
+  // Default: neutral warm
+  return { from: "from-[#f8e6b6]", to: "to-[#f1d59c]" };
+}
+
 function CatalogUI({
   catalog,
   indexes,
 }: CatalogPageClientProps & { indexes: CatalogIndexes }) {
+  const pathname = usePathname();
   const { quantities, entries, totals, offerStocks, add, remove, removeLine, reload: reloadCart, lastServerMessages } = useCart();
+  const headerRef = useRef<HTMLElement | null>(null);
+  const pageScrollRef = useRef<HTMLDivElement | null>(null);
+  const categoriesScrollRef = useRef<HTMLElement | null>(null);
 
   const [searchQuery, setSearchQuery] = useState("");
   // Search index is built for CARD TITLES (offer.menuItemName), not for categories/baseItems.
@@ -141,6 +194,25 @@ function CatalogUI({
   }, [catalog.offers]);
 
   const baseItemById = useMemo(() => new Map(baseItems.map((b) => [b.id, b])), [baseItems]);
+
+  // "Hero" images for 2nd-level category cards: pick first offer with an image within the subcategory.
+  const subcategoryHeroImageById = useMemo(() => {
+    const map = new Map<SubcategoryId, string>();
+    for (const sub of subcategories) {
+      const items = indexes.itemsBySubcategory.get(sub.id) ?? [];
+      let found: string | null = null;
+      for (const item of items) {
+        const offers = indexes.offersByBaseItem.get(item.id) ?? [];
+        const withImg = offers.find((o) => !!o.imageUrl);
+        if (withImg?.imageUrl) {
+          found = withImg.imageUrl;
+          break;
+        }
+      }
+      if (found) map.set(sub.id, found);
+    }
+    return map;
+  }, [indexes.itemsBySubcategory, indexes.offersByBaseItem, subcategories]);
 
   useEffect(() => {
     const next = ensureValidSelection(
@@ -375,6 +447,12 @@ function CatalogUI({
     setExpandedCategoryIds((prev) => (prev.includes(sub.categoryId) ? prev : [...prev, sub.categoryId]));
   };
 
+  const handleSubcategoryCardClick = (subcategoryId: SubcategoryId) => {
+    handleSubcategoryClick(subcategoryId);
+    // Make sure the main scroll starts from top for a "navigation" feel.
+    pageScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const handleItemClick = (itemId: BaseItemId) => {
     const item = baseItems.find((i) => i.id === itemId);
     if (!item) return;
@@ -449,6 +527,27 @@ function CatalogUI({
   const breadcrumbLinkClasses =
     "cursor-pointer text-slate-500 hover:text-slate-800 hover:underline underline-offset-4";
   const breadcrumbActiveClasses = "font-medium text-slate-800";
+
+  const isOverviewMode = !isSearching && activeSubcategoryId == null && activeItemId == null;
+  const overviewCategories = activeCategoryId ? categories.filter((c) => c.id === activeCategoryId) : categories;
+
+  const resetToOverview = () => {
+    clearSearch();
+    setActiveCategoryId(null);
+    setActiveSubcategoryId(null);
+    setActiveItemId(null);
+    setExpandedCategoryIds([]);
+    pageScrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handleLogoClick = (e: React.MouseEvent) => {
+    // If we're already on the catalog route, Next.js may treat navigation as a no-op.
+    // In that case, reset client state to show the catalog overview.
+    if (pathname === "/") {
+      e.preventDefault();
+      resetToOverview();
+    }
+  };
 
   const renderOffersBlock = (baseItem: (typeof baseItems)[number], offers: typeof offersForItem) => {
     const anon = offers.find((o) => o.isAnonymous);
@@ -590,8 +689,66 @@ function CatalogUI({
     }
   }, [isProfileDropdownOpen]);
 
+  // Scroll behavior like Yandex Lavka:
+  // - Header and cart stay in place.
+  // - Wheel scroll first moves BOTH: categories list (left) + main page scroll (center).
+  // - When categories can't scroll further, only main scroll continues.
+  // - Footer is revealed only when main scroll reaches the end (footer is inside the main scroll container).
+  useEffect(() => {
+    const pageEl = pageScrollRef.current;
+    if (!pageEl) return;
+
+    const handler = (e: WheelEvent) => {
+      if (e.ctrlKey) return; // allow browser zoom gesture
+      if (Math.abs(e.deltaY) < 0.5) return;
+
+      const target = e.target as HTMLElement | null;
+      // Don't hijack scrolling inside the cart items list or other explicitly marked scroll areas.
+      if (target?.closest?.("[data-no-sync-wheel='true']")) return;
+
+      // We fully control vertical scrolling inside our page container.
+      e.preventDefault();
+
+      const delta = e.deltaY;
+
+      // Scroll main container (this also controls when footer appears).
+      if (pageEl) {
+        pageEl.scrollTop += delta;
+      }
+
+      // In parallel, scroll categories list if it exists (desktop).
+      const catEl = categoriesScrollRef.current;
+      if (catEl) {
+        catEl.scrollTop += delta;
+      }
+    };
+
+    pageEl.addEventListener("wheel", handler, { passive: false, capture: true });
+    return () => pageEl.removeEventListener("wheel", handler, true);
+  }, []);
+
+  // Keep CSS var in sync with actual header height (desktop header can be taller than expected).
+  useEffect(() => {
+    const headerEl = headerRef.current;
+    if (!headerEl) return;
+
+    const apply = () => {
+      const h = Math.ceil(headerEl.getBoundingClientRect().height);
+      document.documentElement.style.setProperty("--vilka-header-h", `${h}px`);
+    };
+
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(headerEl);
+    window.addEventListener("resize", apply);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", apply);
+    };
+  }, []);
+
   return (
-    <main className="flex min-h-screen flex-col bg-stone-200/70">
+    <main className="flex h-[100dvh] flex-col overflow-hidden bg-[var(--vilka-bg)]">
       {isSearchFocused && (
         <div
           className="fixed inset-0 z-30 bg-black/45"
@@ -626,11 +783,14 @@ function CatalogUI({
           </div>
         </div>
       )}
-      <header className="shrink-0 z-40 border-b border-slate-200/70 bg-stone-50/80 backdrop-blur">
+      <header
+        ref={headerRef}
+        className="shrink-0 z-40 border-b border-slate-200/70 bg-stone-50/80 backdrop-blur"
+      >
         <div className="hidden md:block">
           <div className="border-b border-slate-200/70 bg-stone-50/80 backdrop-blur">
             <div className="flex w-full items-center gap-4 px-4 py-3">
-              <Link href="/" className="flex items-center gap-2 transition hover:opacity-80">
+              <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 transition hover:opacity-80">
                 <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
                   <span className="text-lg font-bold text-brand-dark">V</span>
                 </div>
@@ -759,7 +919,7 @@ function CatalogUI({
 
         <div className="md:hidden">
           <div className="flex w-full items-center gap-3 bg-white px-3 pt-3 pb-2">
-            <Link href="/" className="flex items-center gap-2 transition hover:opacity-80">
+            <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 transition hover:opacity-80">
               <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
                 <span className="text-base font-bold text-brand-dark">V</span>
               </div>
@@ -877,9 +1037,13 @@ function CatalogUI({
         </div>
       </header>
 
-      <section className="w-full flex-1 px-3 pt-3 pb-5 md:px-4 md:pt-4 md:pb-7">
-        <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[64px_minmax(0,1fr)_320px] lg:grid-cols-[200px_minmax(0,1fr)_320px] xl:grid-cols-[240px_minmax(0,1fr)_320px]">
-          <aside className="hidden w-full self-start rounded-3xl bg-white shadow-vilka-soft md:sticky md:top-4 md:block md:w-auto md:max-h-[calc(100vh-2rem)] md:overflow-y-auto md:border md:border-slate-100 overscroll-contain">
+      <div ref={pageScrollRef} className="flex-1 overflow-y-auto bg-[var(--vilka-bg)]">
+        <section className="w-full px-3 pt-3 pb-5 md:px-4 md:pt-4 md:pb-7">
+          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[64px_minmax(0,1fr)_320px] lg:grid-cols-[200px_minmax(0,1fr)_320px] xl:grid-cols-[240px_minmax(0,1fr)_320px]">
+            <aside
+              ref={categoriesScrollRef}
+              className="hidden w-full self-start rounded-3xl bg-white shadow-vilka-soft md:sticky md:top-4 md:block md:w-auto md:max-h-[calc(100dvh-var(--vilka-header-h,0px)-2rem)] md:overflow-y-auto overscroll-contain"
+            >
             <div className="rounded-3xl bg-white p-2 md:p-3">
               <h2 className="hidden px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-600 lg:block">
                 Категории
@@ -961,85 +1125,146 @@ function CatalogUI({
             </div>
           </aside>
 
-          <section className="flex min-w-0 flex-col gap-3 rounded-3xl border border-slate-100 bg-white p-4 shadow-vilka-soft">
+          <section className="flex min-w-0 flex-col gap-3 rounded-3xl bg-white p-4 shadow-vilka-soft">
             {!isSearching && (
               <>
-                {/* Информационный блок */}
-                <div className="rounded-[var(--vilka-radius-xl)] border border-surface-soft bg-white p-5 sm:p-6">
-                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="max-w-md">
-                      <div className="inline-flex items-center gap-2 rounded-full bg-surface-soft px-3 py-1 text-xs font-medium text-slate-800">
-                        <Clock className="h-3.5 w-3.5" />
-                        <span>Горячая еда за 25–35 минут</span>
+                {isOverviewMode ? (
+                  <div className="flex flex-col gap-8">
+                    {activeCategoryId && (
+                      <div className="flex items-center justify-end">
+                        <button
+                          type="button"
+                          onClick={resetToOverview}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900"
+                        >
+                          Все категории
+                        </button>
                       </div>
-                      <h1 className="mt-3 text-2xl font-bold text-slate-900 sm:text-3xl">
-                        Рестораны и пекарни
-                        <br />
-                        в одной доставке.
-                      </h1>
-                      <p className="mt-2 text-sm text-slate-600">
-                        Заведения размещают свои блюда в Вилке и могут скрыть бренд. Вы выбираете — анонимное
-                        предложение или конкретный ресторан рядом.
-                      </p>
-                    </div>
+                    )}
 
-                    <div className="flex flex-col gap-2 rounded-3xl bg-surface-soft p-4 text-sm sm:w-64">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-600">Минимальная сумма заказа</span>
-                        <span className="text-sm font-semibold text-slate-900">от 0 ₽</span>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-slate-600">Доставка из заведений</span>
-                        <span className="text-sm font-semibold text-slate-900">от 0 ₽</span>
-                      </div>
-                      <button className="mt-2 inline-flex items-center justify-center rounded-2xl bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark">
-                        Посмотреть заведения
-                      </button>
+                    <div className="flex flex-col gap-14">
+                      {overviewCategories.map((cat) => {
+                        const subsForCat = indexes.subcategoriesByCategory.get(cat.id) ?? [];
+                        if (subsForCat.length === 0) return null;
+                        const theme = getCategoryTheme(cat);
+                        return (
+                          <div key={cat.id} className="flex flex-col gap-6">
+                            <h2 className="text-4xl font-black tracking-tight text-slate-900 md:text-5xl">
+                              {cat.name}
+                            </h2>
+
+                            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                              {subsForCat.map((sub) => {
+                                const hero = subcategoryHeroImageById.get(sub.id) ?? null;
+                                return (
+                                  <button
+                                    key={sub.id}
+                                    type="button"
+                                    onClick={() => handleSubcategoryCardClick(sub.id)}
+                                    className={[
+                                      "group relative w-full overflow-hidden rounded-[38px] text-left shadow-vilka-soft",
+                                      "h-[178px] sm:h-[196px] md:h-[208px]",
+                                      "bg-gradient-to-b",
+                                      theme.from,
+                                      theme.to,
+                                      "transition-transform duration-150 ease-out hover:-translate-y-1 active:translate-y-0",
+                                      "focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2",
+                                    ].join(" ")}
+                                    aria-label={`Открыть подкатегорию: ${sub.name}`}
+                                  >
+                                    {/* subtle overlay for readability */}
+                                    <div className="absolute inset-0 bg-gradient-to-r from-white/55 via-white/10 to-white/0" />
+
+                                    {/* title */}
+                                    <div className="relative z-10 p-6 pr-24">
+                                      <div className="text-[28px] font-black leading-[1.05] tracking-tight text-slate-900 md:text-[30px]">
+                                        {sub.name}
+                                      </div>
+                                    </div>
+
+                                    {/* image (if available) */}
+                                    {hero ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img
+                                        src={hero}
+                                        alt=""
+                                        aria-hidden="true"
+                                        className="absolute -right-8 bottom-0 top-0 w-[62%] object-cover object-left"
+                                      />
+                                    ) : (
+                                      <div
+                                        aria-hidden="true"
+                                        className="absolute -right-10 -bottom-10 flex h-44 w-44 items-center justify-center rounded-[48px] bg-white/35 text-6xl blur-[0px]"
+                                      >
+                                        <CategoryEmoji code={cat.id} />
+                                      </div>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
-                </div>
-
-                <div className="text-xs">
-                {/* Level 1: not clickable */}
-                {currentCategory?.name ? (
-                  <span className="text-slate-500">{currentCategory.name}</span>
                 ) : (
-                  <span className="text-slate-500">Категория</span>
-                )}
-
-                <span className="text-slate-500"> · </span>
-
-                {/* Level 2: highlighted when 3rd level is not selected */}
-                {currentSubcategory?.id ? (
-                  activeItemId ? (
-                    <button
-                      type="button"
-                      className={breadcrumbLinkClasses}
-                      onClick={() => handleSubcategoryBreadcrumbClick(currentSubcategory.id)}
-                    >
-                      {currentSubcategory.name}
-                    </button>
-                  ) : (
-                    <span className={breadcrumbActiveClasses}>{currentSubcategory.name}</span>
-                  )
-                ) : (
-                  <span className={activeItemId ? "text-slate-500" : breadcrumbActiveClasses}>Подкатегория</span>
-                )}
-
-                {/* Level 3: show only when selected */}
-                {currentItem?.id && (
                   <>
-                    <span className="text-slate-500"> · </span>
-                    <button
-                      type="button"
-                      className="font-medium text-slate-800 hover:underline underline-offset-4"
-                      onClick={() => handleItemClick(currentItem.id)}
-                    >
-                      {currentItem.name}
-                    </button>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-xs">
+                        <button
+                          type="button"
+                          onClick={resetToOverview}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900"
+                        >
+                          ← Каталог
+                        </button>
+
+                        {/* Level 1: not clickable */}
+                        {currentCategory?.name ? (
+                          <span className="text-slate-500">{currentCategory.name}</span>
+                        ) : (
+                          <span className="text-slate-500">Категория</span>
+                        )}
+
+                        <span className="text-slate-500"> · </span>
+
+                        {/* Level 2: highlighted when 3rd level is not selected */}
+                        {currentSubcategory?.id ? (
+                          activeItemId ? (
+                            <button
+                              type="button"
+                              className={breadcrumbLinkClasses}
+                              onClick={() => handleSubcategoryBreadcrumbClick(currentSubcategory.id)}
+                            >
+                              {currentSubcategory.name}
+                            </button>
+                          ) : (
+                            <span className={breadcrumbActiveClasses}>{currentSubcategory.name}</span>
+                          )
+                        ) : (
+                          <span className={activeItemId ? "text-slate-500" : breadcrumbActiveClasses}>
+                            Подкатегория
+                          </span>
+                        )}
+
+                        {/* Level 3: show only when selected */}
+                        {currentItem?.id && (
+                          <>
+                            <span className="text-slate-500"> · </span>
+                            <button
+                              type="button"
+                              className="font-medium text-slate-800 hover:underline underline-offset-4"
+                              onClick={() => handleItemClick(currentItem.id)}
+                            >
+                              {currentItem.name}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </>
                 )}
-              </div>
               </>
             )}
 
@@ -1154,7 +1379,7 @@ function CatalogUI({
                   ) : null}
                 </div>
               )
-            ) : itemsForSubcategory.length > 0 ? (
+            ) : isOverviewMode ? null : itemsForSubcategory.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {itemsForSubcategory.map((item) => (
                   <MenuOptionButton
@@ -1173,6 +1398,7 @@ function CatalogUI({
             )}
 
             {!isSearching &&
+              !isOverviewMode &&
               (activeItemId && currentItem ? (
                 renderOffersBlock(currentItem, offersForItem)
               ) : itemsForSubcategory.length > 0 ? (
@@ -1192,9 +1418,9 @@ function CatalogUI({
               ) : null)}
           </section>
 
-          <aside className="hidden w-full shrink-0 self-start lg:sticky lg:top-4 lg:block">
+            <aside className="hidden w-full shrink-0 self-start lg:sticky lg:top-4 lg:block">
             <div className="flex flex-col gap-2 pb-4">
-              <div className="flex h-[calc(100vh-2rem)] min-h-0 flex-col rounded-3xl border border-slate-100 bg-stone-50/95 p-4 shadow-vilka-soft">
+              <div className="flex h-[calc(100dvh-var(--vilka-header-h,0px)-2rem)] min-h-0 flex-col rounded-3xl bg-white p-4 shadow-vilka-soft">
                 <h2 className="text-base font-semibold text-slate-900">Корзина</h2>
 
                 {lastServerMessages.length > 0 && (
@@ -1216,6 +1442,7 @@ function CatalogUI({
                     {/* Scroll happens only inside the items list */}
                     <div className="relative mt-3 min-h-0 flex-1">
                       <div
+                        data-no-sync-wheel="true"
                         className="h-full min-h-0 space-y-3 overflow-y-auto overscroll-contain pr-1 pb-2"
                         style={{
                           WebkitMaskImage:
@@ -1331,28 +1558,29 @@ function CatalogUI({
               </div>
             </div>
           </aside>
-        </div>
-      </section>
-
-      <footer className="shrink-0 border-t border-slate-200/70 bg-stone-50/80">
-        <div className="flex w-full flex-col gap-2 px-6 py-3 text-xs text-slate-600 md:flex-row md:items-center md:justify-between">
-          <span>© {new Date().getFullYear()} Вилка. Доставка еды из ресторанов и пекарен.</span>
-          <div className="flex flex-wrap gap-3">
-            <button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu">
-              Вопросы и поддержка
-            </button>
-            <button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu">
-              Условия сервиса
-            </button>
-            <a
-              href="/business"
-              className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu"
-            >
-              Для бизнеса
-            </a>
           </div>
-        </div>
-      </footer>
+        </section>
+
+        <footer className="shrink-0 border-t border-slate-200/70 bg-stone-50/80">
+          <div className="flex w-full flex-col gap-2 px-6 py-3 text-xs text-slate-600 md:flex-row md:items-center md:justify-between">
+            <span>© {new Date().getFullYear()} Вилка. Доставка еды из ресторанов и пекарен.</span>
+            <div className="flex flex-wrap gap-3">
+              <button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu">
+                Вопросы и поддержка
+              </button>
+              <button className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu">
+                Условия сервиса
+              </button>
+              <a
+                href="/business"
+                className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900 active:scale-95 transition-transform transform-gpu"
+              >
+                Для бизнеса
+              </a>
+            </div>
+          </div>
+        </footer>
+      </div>
 
       <AuthModal 
         isOpen={isAuthOpen} 

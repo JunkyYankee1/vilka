@@ -28,7 +28,7 @@ export function ensureValidSelection(
     if (subs.length === 0) {
       nextSubcategoryId = null;
       nextItemId = null;
-    } else if (!subs.some((s) => s.id === nextSubcategoryId)) {
+    } else if (nextSubcategoryId != null && !subs.some((s) => s.id === nextSubcategoryId)) {
       nextSubcategoryId = subs[0].id;
     }
   }
