@@ -1885,6 +1885,8 @@ SELECT pg_catalog.setval('public.user_devices_id_seq', 1, false);
 
 SELECT pg_catalog.setval('public.users_id_seq', 2, true);
 
+-- Note: Technical users (id=1, id=2) are inserted later in this file (see "Seed additions" section).
+
 
 --
 -- Name: cart_items cart_items_pkey; Type: CONSTRAINT; Schema: public; Owner: kasashka
@@ -2808,6 +2810,20 @@ ALTER TABLE public.carts
 -- Ensure cart_token is unique (NULLs allowed, as per Postgres unique semantics)
 CREATE UNIQUE INDEX IF NOT EXISTS carts_cart_token_key ON public.carts USING btree (cart_token);
 
+-- Telegram identities (used by auth/me + Telegram Login)
+CREATE TABLE IF NOT EXISTS public.telegram_identities (
+  telegram_id bigint PRIMARY KEY,
+  user_id bigint NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  username text,
+  first_name text,
+  last_name text,
+  photo_url text,
+  last_auth_date bigint NOT NULL,
+  created_at timestamptz DEFAULT now() NOT NULL,
+  updated_at timestamptz DEFAULT now() NOT NULL,
+  CONSTRAINT telegram_identities_user_id_key UNIQUE (user_id)
+);
+
 ALTER TABLE public.cart_items
   ADD COLUMN IF NOT EXISTS comment text,
   ADD COLUMN IF NOT EXISTS allow_replacement boolean DEFAULT true,
@@ -2930,12 +2946,14 @@ SELECT setval('public.menu_items_id_seq', GREATEST((SELECT COALESCE(MAX(id), 1) 
 SELECT setval('public.ref_dish_categories_id_seq', GREATEST((SELECT COALESCE(MAX(id), 1) FROM public.ref_dish_categories), nextval('public.ref_dish_categories_id_seq')), true);
 
 -- Technical demo users used by /api/auth/login (codes: 0000, 1111)
-INSERT INTO public.users (phone, role, is_active, phone_verified, phone_verified_at)
+-- IMPORTANT: IDs must match TECHNICAL_USERS in /api/auth/login/route.ts
+INSERT INTO public.users (id, phone, role, is_active, phone_verified, phone_verified_at)
 VALUES
-  ('+79000000000', 'customer', true, true, now()),
-  ('+79111111111', 'customer', true, true, now())
-ON CONFLICT (phone) DO UPDATE
-SET is_active = EXCLUDED.is_active,
+  (1, '+79000000000', 'customer', true, true, now()),
+  (2, '+79111111111', 'customer', true, true, now())
+ON CONFLICT (id) DO UPDATE
+SET phone = EXCLUDED.phone,
+    is_active = EXCLUDED.is_active,
     phone_verified = EXCLUDED.phone_verified,
     phone_verified_at = EXCLUDED.phone_verified_at,
     updated_at = now();

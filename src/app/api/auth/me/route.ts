@@ -3,6 +3,17 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { query } from "@/lib/db";
 
+function clearAuthCookie(res: NextResponse) {
+  res.cookies.set("vilka_user_id", "", {
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    maxAge: 0,
+    expires: new Date(0),
+  });
+  return res;
+}
+
 export async function GET() {
   try {
     const cookieStore = await cookies();
@@ -16,8 +27,25 @@ export async function GET() {
 
     const userId = parseInt(userIdStr, 10);
     if (isNaN(userId)) {
-      return NextResponse.json({ user: null });
+      return clearAuthCookie(NextResponse.json({ user: null }));
     }
+
+    // Ensure Telegram identities table exists.
+    // Without this, a fresh DB (or DB reset) may not have the table yet, and auth/me would always return null.
+    await query(`
+      CREATE TABLE IF NOT EXISTS public.telegram_identities (
+        telegram_id bigint PRIMARY KEY,
+        user_id bigint NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+        username text,
+        first_name text,
+        last_name text,
+        photo_url text,
+        last_auth_date bigint NOT NULL,
+        created_at timestamptz DEFAULT now() NOT NULL,
+        updated_at timestamptz DEFAULT now() NOT NULL,
+        CONSTRAINT telegram_identities_user_id_key UNIQUE (user_id)
+      );
+    `);
 
     const { rows } = await query<{
       id: number;
@@ -42,7 +70,7 @@ export async function GET() {
     );
 
     if (rows.length === 0) {
-      return NextResponse.json({ user: null });
+      return clearAuthCookie(NextResponse.json({ user: null }));
     }
 
     const u = rows[0];
