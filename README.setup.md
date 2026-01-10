@@ -51,6 +51,13 @@ This will:
 - Start Nginx reverse proxy
 - Start Ollama (LLM inference, optional)
 
+### Cart realtime sync (WebSocket)
+
+In Docker we start a small WebSocket server (`ws-server.js`) inside the `app` container.
+Nginx proxies it at `ws://<host>/ws/cart`.
+
+The cart is still persisted to Redis via `/api/cart/validate`, but other tabs/devices receive updates instantly via WebSocket (no polling).
+
 Access:
 - App: http://localhost (via Nginx) or http://localhost:3000 (direct)
 - Postgres: localhost:5432

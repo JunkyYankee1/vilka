@@ -151,7 +151,7 @@ const BrandedOfferCard = ({
                       e.stopPropagation();
                       onAdd();
                     }}
-                    className="flex items-center justify-center text-white transition hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-white focus:ring-offset-2 focus:ring-offset-green-500"
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-green-500"
                     aria-label="Увеличить количество"
                   >
                     <svg
@@ -193,7 +193,7 @@ const BrandedOfferCard = ({
                     e.stopPropagation();
                     onAdd();
                   }}
-                  className="flex items-center gap-2 rounded-full px-4 py-2.5 transition hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-1"
+                  className="flex items-center gap-2 rounded-full px-4 py-2.5 transition hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-1"
                   style={{ backgroundColor: "#00B749" }}
                 >
                   {showOldPrice && (

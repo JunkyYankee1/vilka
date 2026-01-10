@@ -33,11 +33,11 @@ export function QuantityControls({
 
   const sizeClasses = {
     sm: {
-      button: "h-7 w-7 text-sm",
+      button: "h-8 w-8 text-sm",
       quantity: "text-sm",
     },
     md: {
-      button: "h-8 w-8 text-base",
+      button: "h-9 w-9 text-base",
       quantity: "text-sm",
     },
   };
@@ -51,7 +51,7 @@ export function QuantityControls({
           type="button"
           onClick={handleRemove}
           aria-label="Уменьшить количество"
-          className={`flex ${classes.button} items-center justify-center rounded-full bg-white font-semibold leading-none text-slate-700 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1`}
+          className={`flex ${classes.button} items-center justify-center rounded-full bg-white font-semibold leading-none text-slate-700 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1`}
         >
           –
         </button>
@@ -66,7 +66,7 @@ export function QuantityControls({
             type="button"
             onClick={handleAdd}
             aria-label="Увеличить количество"
-            className={`flex ${classes.button} items-center justify-center rounded-full bg-white font-semibold leading-none text-emerald-500 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1`}
+            className={`flex ${classes.button} items-center justify-center rounded-full bg-white font-semibold leading-none text-emerald-500 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1`}
           >
             +
           </button>
@@ -82,7 +82,7 @@ export function QuantityControls({
       type="button"
       onClick={handleAdd}
       aria-label="Добавить в корзину"
-      className={`flex ${classes.button} items-center justify-center rounded-full bg-white font-semibold leading-none text-emerald-500 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-1 ${className}`}
+      className={`flex ${classes.button} items-center justify-center rounded-full bg-white font-semibold leading-none text-emerald-500 shadow-sm transition hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-1 ${className}`}
     >
       +
     </button>

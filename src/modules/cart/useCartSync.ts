@@ -25,6 +25,8 @@ export function useCartSync() {
         }
       );
 
+      // Deprecated: prefer WS-based cart sync (CartProvider).
+      // This helper remains for legacy call sites; it falls back to validate.
       const res = await fetch("/api/cart/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

@@ -31,6 +31,8 @@ export function CartProvider({ offers, children }: CartProviderProps) {
   const [offerStocks, setOfferStocks] = useState<Record<OfferId, number | undefined>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [lastServerMessages, setLastServerMessages] = useState<string[]>([]);
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsLastTsRef = useRef<number>(0);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const hasLoadedRef = useRef(false);
   const syncRequestIdRef = useRef(0);
@@ -118,198 +120,127 @@ export function CartProvider({ offers, children }: CartProviderProps) {
     }
   );
 
+  const sendCartOverWs = useRef((quantities: CartState) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+
+    const items = Object.entries(quantities)
+      .filter(([_, qty]) => qty > 0)
+      .map(([offerId, quantity]) => ({ offerId: Number(offerId), quantity }));
+
+    try {
+      ws.send(JSON.stringify({ type: "cart:sync", deliverySlot: null, items }));
+      return true;
+    } catch {
+      return false;
+    }
+  });
+
   // Загружаем корзину из Redis при монтировании
   useEffect(() => {
     if (hasLoadedRef.current) return;
     hasLoadedRef.current = true;
-    loadCartFromServer.current({ mergeIfHasExisting: true });
+    (async () => {
+      await loadCartFromServer.current({ mergeIfHasExisting: true });
+
+      // After first server call, cookies (vilka_cart / vilka_user_id) are present.
+      // Subscribe to realtime updates via WebSocket.
+      if (typeof window === "undefined") return;
+      if (wsRef.current) return;
+
+      const proto = window.location.protocol === "https:" ? "wss" : "ws";
+      const url = `${proto}://${window.location.host}/ws/cart`;
+      console.log("[CartProvider] Connecting cart WS:", url);
+
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onmessage = (ev) => {
+        let msg: any = null;
+        try {
+          msg = JSON.parse(String(ev.data));
+        } catch {
+          return;
+        }
+        if (!msg || msg.type !== "cart:update") return;
+        const ts = typeof msg.ts === "number" ? msg.ts : 0;
+        if (ts && ts <= wsLastTsRef.current) return;
+        if (ts) wsLastTsRef.current = ts;
+
+        const serverCart = msg.cart;
+        if (!serverCart || !Array.isArray(serverCart.items)) return;
+
+        const serverQuantities: CartState = {};
+        for (const item of serverCart.items) {
+          const stringId = String(item.offerId);
+          serverQuantities[stringId] = item.quantity;
+        }
+
+        // Update stocks if present
+        if (msg.stockByOfferId && typeof msg.stockByOfferId === "object") {
+          const nextStocks: Record<OfferId, number | undefined> = {};
+          for (const [k, v] of Object.entries(msg.stockByOfferId as Record<string, unknown>)) {
+            const stringId = String(k) as OfferId;
+            const num = typeof v === "number" ? v : Number(v);
+            nextStocks[stringId] = Number.isFinite(num) ? num : undefined;
+          }
+          setOfferStocks((prev) => ({ ...prev, ...nextStocks }));
+        }
+
+        // Show server messages if any
+        if (msg.changes && Array.isArray(msg.changes) && msg.changes.length > 0) {
+          const messages = (msg.changes as any[])
+            .map((c) => (c && typeof c.message === "string" ? c.message : null))
+            .filter(Boolean) as string[];
+          if (messages.length > 0) {
+            setLastServerMessages(messages.slice(0, 3));
+            if (lastServerMessagesTimeoutRef.current) {
+              clearTimeout(lastServerMessagesTimeoutRef.current);
+            }
+            lastServerMessagesTimeoutRef.current = setTimeout(() => {
+              setLastServerMessages([]);
+            }, 4000);
+          }
+        }
+
+        // Replace state with server truth (this is the point of realtime sync)
+        setCart(serverQuantities);
+      };
+
+      ws.onclose = () => {
+        if (wsRef.current === ws) wsRef.current = null;
+        console.log("[CartProvider] Cart WS closed");
+      };
+
+      ws.onerror = (e) => {
+        console.warn("[CartProvider] Cart WS error", e);
+      };
+    })();
   }, []);
 
   const syncWithServer = useRef(async (quantities: CartState) => {
     console.log("[CartProvider] syncWithServer called with quantities:", quantities);
-    
-    // Каждый новый sync делает предыдущий устаревшим: абортим in-flight запрос,
-    // а ответы от старых запросов игнорируем (иначе возможны "откаты" счётчиков).
-    const requestId = ++syncRequestIdRef.current;
-    if (syncAbortRef.current) {
-      try {
-        syncAbortRef.current.abort();
-      } catch {}
+    // Prefer WS: no /api/cart/validate requests from the browser.
+    if (typeof window !== "undefined") {
+      const ok = sendCartOverWs.current(quantities);
+      if (ok) return;
     }
-    const controller = new AbortController();
-    syncAbortRef.current = controller;
 
-    const items = Object.entries(quantities)
-      .filter(([_, qty]) => qty > 0)
-      .map(([offerId, quantity]) => {
-        const numId = Number(offerId);
-        console.log(`[CartProvider] Converting offerId "${offerId}" (${typeof offerId}) to ${numId} (${typeof numId})`);
-        return {
-          offerId: numId,
-          quantity,
-        };
-      });
-
-    console.log("[CartProvider] Prepared items for sync:", items);
-
-    // Проверка isLoading уже выполнена в useEffect перед вызовом этой функции
-
+    // Fallback: if WS isn't connected, keep old behavior (rare; mostly during startup).
+    // This is intentionally kept minimal to avoid breaking cart in environments without WS.
     try {
-      console.log("[CartProvider] Syncing cart with", items.length, "items", JSON.stringify(items, null, 2));
-      const transientStatuses = new Set([502, 503, 504]);
-      let res: Response | null = null;
-      let lastErr: unknown = null;
-
-      for (let attempt = 0; attempt < 4; attempt++) {
-        try {
-          res = await fetch("/api/cart/validate", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              deliverySlot: null,
-              items,
-            }),
-            signal: controller.signal,
-          });
-          if (!transientStatuses.has(res.status)) break;
-        } catch (e) {
-          if (controller.signal.aborted) {
-            console.log("[CartProvider] Cart sync aborted (newer sync started)");
-            return;
-          }
-          lastErr = e;
-        }
-
-        const backoffMs = 250 * (attempt + 1);
-        await new Promise((r) => setTimeout(r, backoffMs));
-      }
-
-      if (!res) {
-        console.warn("[CartProvider] Cart sync failed (no response). Last error:", lastErr);
-        return;
-      }
-
-      // Если пока мы ждали ответ, стартовал новый sync — игнорируем этот результат.
-      if (requestId !== syncRequestIdRef.current) {
-        console.log("[CartProvider] Ignoring stale cart sync response", { requestId, latest: syncRequestIdRef.current });
-        return;
-      }
-
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        if (transientStatuses.has(res.status)) {
-          console.warn("[CartProvider] Cart sync failed after retries (transient)", res.status, errorData);
-        } else {
-          console.error("[CartProvider] Cart sync failed", res.status, errorData);
-        }
-        // Не обновляем состояние при ошибке
-        return;
-      }
-      
-      const data = await res.json();
-      console.log("[CartProvider] Cart synced successfully:", data);
-      console.log("[CartProvider] Received items:", data.items);
-
-      // Ещё раз защищаемся от гонок: на случай если новый sync стартовал между res.ok и res.json().
-      if (requestId !== syncRequestIdRef.current) {
-        console.log("[CartProvider] Ignoring stale cart sync payload", { requestId, latest: syncRequestIdRef.current });
-        return;
-      }
-
-      // Защита от "тихих" откатов:
-      // если сервер вернул количества, отличающиеся от отправленных, но при этом НЕ прислал changes для этих offerId,
-      // считаем ответ неконсистентным/устаревшим и не применяем его.
-      const changedOfferIds = new Set<string>();
-      if (data.changes && Array.isArray(data.changes)) {
-        for (const ch of data.changes as any[]) {
-          if (ch && ch.offerId != null) changedOfferIds.add(String(ch.offerId));
-        }
-      }
-      const requestedQtyByOfferId = new Map<string, number>();
-      for (const it of items) {
-        requestedQtyByOfferId.set(String(it.offerId), it.quantity);
-      }
-      
-      // Проверяем, есть ли изменения (удаленные товары)
-      if (data.changes && Array.isArray(data.changes) && data.changes.length > 0) {
-        console.warn("[CartProvider] Items were removed:", data.changes);
-
-        const messages = (data.changes as any[])
-          .map((c) => (c && typeof c.message === "string" ? c.message : null))
-          .filter(Boolean) as string[];
-        if (messages.length > 0) {
-          setLastServerMessages(messages.slice(0, 3));
-          if (lastServerMessagesTimeoutRef.current) {
-            clearTimeout(lastServerMessagesTimeoutRef.current);
-          }
-          lastServerMessagesTimeoutRef.current = setTimeout(() => {
-            setLastServerMessages([]);
-          }, 4000);
-        }
-      }
-      
-      // Обновляем локальное состояние из ответа сервера
-      // Важно: сервер возвращает числовые offerId, но в CartState ключи - строки
-      const serverQuantities: CartState = {};
-      if (data.items && Array.isArray(data.items)) {
-        for (const item of data.items) {
-          // Конвертируем числовой ID обратно в строку для CartState
-          const stringId = String(item.offerId);
-          serverQuantities[stringId] = item.quantity;
-          console.log(`[CartProvider] Mapping server item: ${item.offerId} (number) -> "${stringId}" (string), qty: ${item.quantity}`);
-        }
-      }
-
-      for (const [k, requestedQty] of requestedQtyByOfferId.entries()) {
-        const serverQty = serverQuantities[k] ?? 0;
-        if (serverQty !== requestedQty && !changedOfferIds.has(k)) {
-          console.warn("[CartProvider] Ignoring inconsistent cart sync response (mismatch without changes)", {
-            offerId: k,
-            requestedQty,
-            serverQty,
-          });
-          return;
-        }
-      }
-
-      // Обновляем локальную карту остатков (если сервер её прислал)
-      if (data.stockByOfferId && typeof data.stockByOfferId === "object") {
-        const nextStocks: Record<OfferId, number | undefined> = {};
-        for (const [k, v] of Object.entries(data.stockByOfferId as Record<string, unknown>)) {
-          const stringId = String(k) as OfferId;
-          const num = typeof v === "number" ? v : Number(v);
-          nextStocks[stringId] = Number.isFinite(num) ? num : undefined;
-        }
-        setOfferStocks((prev) => ({ ...prev, ...nextStocks }));
-      }
-      
-      console.log("[CartProvider] Updating cart state from server:", serverQuantities);
-      console.log("[CartProvider] Previous cart state:", cart);
-      
-      // Используем функциональное обновление, чтобы не потерять изменения
-      setCart((prev) => {
-        // Объединяем предыдущее состояние с серверным, приоритет у сервера.
-        // ВАЖНО: не удаляем "лишние" позиции только потому, что их нет в ответе —
-        // это может откатить счётчик, если пользователь успел изменить корзину после отправки запроса.
-        const merged: CartState = { ...prev, ...serverQuantities };
-
-        // Удаляем только то, что сервер явно попросил удалить (например, товара больше нет/нельзя заказать).
-        if (data.changes && Array.isArray(data.changes)) {
-          for (const ch of data.changes as any[]) {
-            if (ch && ch.type === "removed" && ch.offerId != null) {
-              const k = String(ch.offerId);
-              if (k in merged) {
-                delete merged[k];
-              }
-            }
-          }
-        }
-
-        console.log("[CartProvider] Merged cart state:", merged);
-        return merged;
+      await fetch("/api/cart/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deliverySlot: null,
+          items: Object.entries(quantities)
+            .filter(([_, qty]) => qty > 0)
+            .map(([offerId, quantity]) => ({ offerId: Number(offerId), quantity })),
+        }),
       });
     } catch (err) {
-      console.error("[CartProvider] Cart sync error:", err);
+      console.warn("[CartProvider] Cart sync fallback failed", err);
     }
   });
 

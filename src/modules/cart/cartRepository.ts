@@ -49,6 +49,33 @@ const CACHE_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const cacheKey = (cartToken: string, userId: number | null) => 
   userId ? `cart:user:${userId}` : `cart:${cartToken}`;
 
+async function publishCartUpdate(opts: {
+  redis: ReturnType<typeof getRedis>;
+  key: string;
+  cart: CanonicalCart;
+  changes?: CartChange[];
+  stockByOfferId?: Record<number, number>;
+}) {
+  const { redis, key, cart, changes, stockByOfferId } = opts;
+  if (!redis) return;
+  try {
+    // Keep payload small-ish; clients can always re-load if needed.
+    await redis.publish(
+      "cart_updates",
+      JSON.stringify({
+        key,
+        cart,
+        changes: changes ?? [],
+        stockByOfferId: stockByOfferId ?? {},
+        ts: Date.now(),
+      })
+    );
+  } catch (e) {
+    // Never fail the request because realtime channel failed.
+    console.warn("[cart realtime] publish failed", e);
+  }
+}
+
 async function maybeMigrateAnonymousCartToUser(opts: {
   redis: ReturnType<typeof getRedis>;
   cartToken: string;
@@ -99,6 +126,7 @@ async function maybeMigrateAnonymousCartToUser(opts: {
       await redis.set(userKey, JSON.stringify({ ...anonCart, cartToken }), { EX: CACHE_TTL_SECONDS });
       await redis.del(anonKey);
       console.log("[cart cache] migrated anon cart to user cart", { anonKey, userKey, userId });
+      await publishCartUpdate({ redis, key: userKey, cart: { ...anonCart, cartToken } });
       return { ...anonCart, cartToken };
     } catch (e) {
       console.error("[cart cache] migration write failed", e);
@@ -536,6 +564,9 @@ export async function validateAndPersistCart(
     });
     throw e;
   }
+
+  // Broadcast to other clients (tabs/devices) subscribed to this cart identity.
+  await publishCartUpdate({ redis, key, cart, changes, stockByOfferId });
 
   const isMinOrderReached = cart.totals.total >= MIN_ORDER_SUM;
 
