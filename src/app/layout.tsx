@@ -1,5 +1,11 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Inter } from "next/font/google";
+
+const inter = Inter({
+  subsets: ["latin", "cyrillic"],
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: "Вилка — быстрая доставка еды и продуктов",
@@ -17,7 +23,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="ru">
-      <body className="min-h-screen bg-[var(--vilka-bg)]">
+      <body className={`${inter.className} min-h-screen bg-[var(--vilka-bg)]`}>
         <div className="flex min-h-screen flex-col">
           {children}
         </div>

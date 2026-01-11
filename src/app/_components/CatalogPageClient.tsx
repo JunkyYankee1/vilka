@@ -2,8 +2,9 @@
 
 import { useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
-import { MapPin, User, Search, ChevronRight, MessageCircle } from "lucide-react";
+import { MapPin, User, Search, MessageCircle } from "lucide-react";
 
 import AuthModal from "@/components/AuthModal";
 import AddressModal from "@/components/AddressModal";
@@ -792,9 +793,9 @@ function CatalogUI({
         <div className="hidden md:block">
           <div className="border-b border-slate-200/70 bg-stone-50/80 backdrop-blur">
             <div className="flex w-full items-center gap-4 px-4 py-3">
-              <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 transition hover:opacity-80">
-                <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
-                  <span className="text-lg font-bold text-brand-dark">V</span>
+              <Link href="/" onClick={handleLogoClick} className="flex items-center gap-1 transition hover:opacity-80">
+                <div className="relative h-18 w-18 shrink-0">
+                  <Image src="/logo.png" alt="Вилка" fill priority sizes="72px" className="object-contain" />
                 </div>
                 <div className="flex flex-col leading-tight">
                   <span className="text-lg font-semibold text-slate-900">Вилка</span>
@@ -922,8 +923,8 @@ function CatalogUI({
         <div className="md:hidden">
           <div className="flex w-full items-center gap-3 bg-white px-3 pt-3 pb-2">
             <Link href="/" onClick={handleLogoClick} className="flex items-center gap-2 transition hover:opacity-80">
-              <div className="flex h-8 w-8 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
-                <span className="text-base font-bold text-brand-dark">V</span>
+              <div className="relative h-16 w-16 shrink-0">
+                <Image src="/logo.png" alt="Вилка" fill priority sizes="64px" className="object-contain" />
               </div>
             </Link>
 
@@ -1047,11 +1048,11 @@ function CatalogUI({
               className="hidden w-full self-start rounded-3xl bg-white shadow-vilka-soft md:sticky md:top-4 md:block md:w-auto md:max-h-[calc(100dvh-var(--vilka-header-h,0px)-2rem)] md:overflow-y-auto overscroll-contain"
             >
             <div className="rounded-3xl bg-white p-2 md:p-3">
-              <h2 className="hidden px-2 pb-2 text-xs font-semibold uppercase tracking-wide text-slate-600 lg:block">
-                Категории
+              <h2 className="hidden px-2 pb-2 text-base font-semibold text-slate-900 lg:block">
+                Каталог
               </h2>
 
-              <nav className="flex flex-col gap-1">
+              <nav className="flex flex-col gap-0">
                 {categories.map((cat) => {
                   const isCatActive = activeCategoryId === cat.id;
                   const isExpanded = expandedCategoryIds.includes(cat.id);
@@ -1059,13 +1060,13 @@ function CatalogUI({
                   const subsForCat = subcategories.filter((s) => s.categoryId === cat.id);
 
                   return (
-                    <div key={cat.id} className="mb-0.5">
+                    <div key={cat.id} className="mb-0">
                       <button
                         type="button"
                         onClick={() => handleCategoryClick(cat.id)}
                         title={cat.name}
                         className={[
-                          "group flex w-full items-center justify-between rounded-2xl px-2 py-2 text-left transition",
+                          "group flex w-full items-center justify-between rounded-2xl px-1 py-1 text-left transition",
                           "md:justify-center lg:justify-between",
                           "md:tooltip-icon-only",
                           isCatActive
@@ -1073,8 +1074,8 @@ function CatalogUI({
                             : "bg-white text-slate-800 hover:bg-surface-soft",
                         ].join(" ")}
                       >
-                        <span className="flex min-w-0 flex-1 items-center gap-2 lg:gap-3">
-                          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-surface-soft text-lg md:h-10 md:w-10">
+                        <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-2xl bg-surface-soft text-base md:h-9 md:w-9 md:text-lg">
                             <CategoryEmoji code={cat.id} />
                           </span>
                           <span className="hidden min-w-0 flex-col lg:flex">
@@ -1086,13 +1087,6 @@ function CatalogUI({
                             )}
                           </span>
                         </span>
-
-                        <ChevronRight
-                          className={[
-                            "hidden h-4 w-4 shrink-0 text-slate-400 transition-transform lg:block",
-                            isExpanded ? "rotate-90" : "",
-                          ].join(" ")}
-                        />
                       </button>
 
                       {isExpanded && subsForCat.length > 0 && (
@@ -1144,18 +1138,18 @@ function CatalogUI({
                       </div>
                     )}
 
-                    <div className="flex flex-col gap-14">
+                    <div className="flex flex-col gap-10">
                       {overviewCategories.map((cat) => {
                         const subsForCat = indexes.subcategoriesByCategory.get(cat.id) ?? [];
                         if (subsForCat.length === 0) return null;
                         const theme = getCategoryTheme(cat);
                         return (
                           <div key={cat.id} className="flex flex-col gap-6">
-                            <h2 className="text-4xl font-black tracking-tight text-slate-900 md:text-5xl">
+                            <h2 className="text-2xl font-semibold tracking-tight text-slate-800 md:text-3xl">
                               {cat.name}
                             </h2>
 
-                            <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                               {subsForCat.map((sub) => {
                                 const hero = subcategoryHeroImageById.get(sub.id) ?? null;
                                 return (
@@ -1179,7 +1173,7 @@ function CatalogUI({
 
                                     {/* title */}
                                     <div className="relative z-10 p-6 pr-24">
-                                      <div className="text-[28px] font-black leading-[1.05] tracking-tight text-slate-900 md:text-[30px]">
+                                      <div className="text-xl font-semibold leading-[1.1] tracking-tight text-slate-800 md:text-2xl">
                                         {sub.name}
                                       </div>
                                     </div>
@@ -1411,7 +1405,7 @@ function CatalogUI({
 
                     return (
                       <div key={item.id} className="flex flex-col gap-6">
-                        <h2 className="text-4xl font-bold text-slate-900">{item.name}</h2>
+                        <h2 className="text-2xl font-medium text-slate-800 md:text-3xl">{item.name}</h2>
                         {renderOffersBlock(item, offers)}
                       </div>
                     );

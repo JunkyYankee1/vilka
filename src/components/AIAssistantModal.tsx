@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Paperclip, Utensils, X } from "lucide-react";
+import Image from "next/image";
+import { ChevronDown, Paperclip, X } from "lucide-react";
 
 type Msg = { role: "user" | "assistant"; content: string; at: string };
 
@@ -116,8 +117,8 @@ export default function AIAssistantModal({ isOpen, onClose }: Props) {
         {/* Header */}
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
-              <Utensils className="h-5 w-5 text-brand-dark" />
+            <div className="relative h-10 w-10 shrink-0">
+              <Image src="/logo.png" alt="Вилка" fill priority sizes="40px" className="object-contain" />
             </div>
             <div className="flex flex-col leading-tight">
               <div className="text-sm font-semibold text-slate-900">Чат Вилки</div>
@@ -156,8 +157,8 @@ export default function AIAssistantModal({ isOpen, onClose }: Props) {
 
               return (
                 <div key={idx} className="flex items-end gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-brand-light shadow-vilka-soft">
-                    <Utensils className="h-4 w-4 text-brand-dark" />
+                  <div className="relative h-9 w-9 shrink-0">
+                    <Image src="/logo.png" alt="Вилка" fill sizes="36px" className="object-contain" />
                   </div>
                   <div className="max-w-[85%] rounded-2xl bg-surface-soft px-3 py-2 text-sm text-slate-900 whitespace-pre-wrap">
                     {m.content}
