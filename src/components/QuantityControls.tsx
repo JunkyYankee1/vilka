@@ -11,7 +11,7 @@ type QuantityControlsProps = {
 
 /**
  * Shared quantity control component for add/remove buttons with quantity display.
- * Used in both BrandedOfferCard and AnonymousOfferCard for consistency.
+ * Used in offer cards for consistency.
  */
 export function QuantityControls({
   quantity,

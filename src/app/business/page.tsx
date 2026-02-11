@@ -12,7 +12,6 @@ type BusinessItem = {
   discount_percent: number | null;
   image_url: string | null;
   ref_category_id: number;
-  is_brand_anonymous: boolean;
   is_active: boolean | null; // может прийти null/undefined из старых данных
   stock_qty: number;
 };
@@ -21,6 +20,16 @@ type Category = {
   id: number;
   name: string;
   code: string;
+};
+
+type MisteryBoxItem = {
+  id: number;
+  name: string;
+  composition: string | null;
+  price: number;
+  image_url: string | null;
+  is_active: boolean | null;
+  stock_qty: number;
 };
 
 export default function BusinessPage() {
@@ -34,6 +43,9 @@ export default function BusinessPage() {
 
   const [items, setItems] = useState<BusinessItem[]>([]);
   const [isLoadingItems, setIsLoadingItems] = useState(false);
+
+  const [misteryBoxes, setMisteryBoxes] = useState<MisteryBoxItem[]>([]);
+  const [isLoadingMisteryBoxes, setIsLoadingMisteryBoxes] = useState(false);
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [isLoadingCategories, setIsLoadingCategories] = useState(false);
@@ -50,12 +62,22 @@ export default function BusinessPage() {
   const [categoryId, setCategoryId] = useState<number | "">("");
   const [categoryQuery, setCategoryQuery] = useState("");
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
-  const [isBrandAnonymous, setIsBrandAnonymous] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
+  // форма Mistery box
+  const [mbName, setMbName] = useState("");
+  const [mbComposition, setMbComposition] = useState("");
+  const [mbPrice, setMbPrice] = useState("");
+  const [mbStockQty, setMbStockQty] = useState("100");
+  const [mbImageFile, setMbImageFile] = useState<File | null>(null);
+  const [mbImagePreviewUrl, setMbImagePreviewUrl] = useState<string | null>(null);
+  const [mbError, setMbError] = useState<string | null>(null);
+  const [mbSaving, setMbSaving] = useState(false);
+
   const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
   const stockEditPrevRef = useRef<Record<number, number>>({});
+  const mbStockEditPrevRef = useRef<Record<number, number>>({});
 
   // preview для выбранной картинки
   useEffect(() => {
@@ -74,6 +96,24 @@ export default function BusinessPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imageFile]);
+
+  // preview для Mistery box картинки
+  useEffect(() => {
+    if (!mbImageFile) {
+      if (mbImagePreviewUrl) URL.revokeObjectURL(mbImagePreviewUrl);
+      setMbImagePreviewUrl(null);
+      return;
+    }
+    const nextUrl = URL.createObjectURL(mbImageFile);
+    setMbImagePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return nextUrl;
+    });
+    return () => {
+      URL.revokeObjectURL(nextUrl);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mbImageFile]);
 
   // === Восстановление авторизации из localStorage ===
   useEffect(() => {
@@ -173,6 +213,30 @@ export default function BusinessPage() {
     loadItems();
   }, [restaurantId]);
 
+  // === Загрузка Mistery boxes после логина ===
+  useEffect(() => {
+    if (!restaurantId) return;
+
+    const loadMisteryBoxes = async () => {
+      setIsLoadingMisteryBoxes(true);
+      try {
+        const res = await fetch(`/api/business/mistery-boxes?restaurantId=${restaurantId}`);
+        if (!res.ok) {
+          console.error("Ошибка при загрузке /api/business/mistery-boxes:", res.status);
+          return;
+        }
+        const data: MisteryBoxItem[] = await res.json();
+        setMisteryBoxes(data);
+      } catch (e) {
+        console.error("Ошибка сети при загрузке mistery boxes:", e);
+      } finally {
+        setIsLoadingMisteryBoxes(false);
+      }
+    };
+
+    loadMisteryBoxes();
+  }, [restaurantId]);
+
   // отфильтрованные категории по введённому тексту
   const filteredCategories = categories.filter((c) =>
     c.name.toLowerCase().includes(categoryQuery.toLowerCase())
@@ -254,7 +318,6 @@ export default function BusinessPage() {
           discountPercent: discountPercent ? Number(discountPercent) : null,
           stockQty: stockQty ? Number(stockQty) : null,
           refCategoryId: Number(categoryId),
-          isBrandAnonymous,
         }),
       });
 
@@ -311,7 +374,6 @@ export default function BusinessPage() {
       setStockQty("100");
       setCategoryId("");
       setCategoryQuery("");
-      setIsBrandAnonymous(false);
 
       // локально добавляем блюдо в начало списка
       setItems((prev) => [
@@ -323,7 +385,6 @@ export default function BusinessPage() {
           discount_percent: discountPercent ? Number(discountPercent) : null,
           image_url: uploadedImageUrl,
           ref_category_id: Number(categoryId),
-          is_brand_anonymous: isBrandAnonymous,
           is_active: true,
           stock_qty: stockQty ? Number(stockQty) : 100,
         },
@@ -334,6 +395,155 @@ export default function BusinessPage() {
       setFormError("Ошибка сохранения");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // === Создание Mistery box ===
+  const handleCreateMisteryBox = async () => {
+    setMbError(null);
+
+    if (!restaurantId) {
+      setMbError("Сначала войдите по коду бизнеса");
+      return;
+    }
+
+    if (!mbName.trim() || !mbPrice) {
+      setMbError("Название и цена обязательны");
+      return;
+    }
+
+    if (mbStockQty && (!Number.isFinite(Number(mbStockQty)) || Number(mbStockQty) < 0)) {
+      setMbError("Остаток должен быть числом >= 0");
+      return;
+    }
+
+    setMbSaving(true);
+    try {
+      const res = await fetch("/api/business/mistery-boxes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          restaurantId,
+          name: mbName.trim(),
+          composition: mbComposition.trim() || null,
+          price: Number(mbPrice),
+          stockQty: mbStockQty ? Number(mbStockQty) : null,
+        }),
+      });
+
+      if (!res.ok) {
+        let err = "Не удалось сохранить Mistery box";
+        try {
+          const data = await res.json();
+          if ((data as any).error) err = (data as any).error;
+        } catch {
+          /* ignore */
+        }
+        setMbError(err);
+        return;
+      }
+
+      const data = await res.json();
+      const newId = (data as any).id as number;
+
+      // image upload (reuse menu-items image endpoint; Mistery box is a menu_item)
+      let uploadedImageUrl: string | null = null;
+      if (mbImageFile) {
+        try {
+          const fd = new FormData();
+          fd.set("file", mbImageFile);
+          const imgRes = await fetch(
+            `/api/business/menu-items/${newId}/image?restaurantId=${restaurantId}`,
+            { method: "POST", body: fd }
+          );
+          if (imgRes.ok) {
+            const imgData = await imgRes.json();
+            uploadedImageUrl = ((imgData as any).imageUrl as string) ?? null;
+          }
+        } catch (e) {
+          console.error("Ошибка сети при загрузке изображения Mistery box:", e);
+        }
+      }
+
+      // reset form
+      setMbName("");
+      setMbComposition("");
+      setMbPrice("");
+      setMbStockQty("100");
+      setMbImageFile(null);
+
+      // optimistic prepend
+      setMisteryBoxes((prev) => [
+        {
+          id: newId,
+          name: mbName.trim(),
+          composition: mbComposition.trim() || null,
+          price: Number(mbPrice),
+          image_url: uploadedImageUrl,
+          is_active: true,
+          stock_qty: mbStockQty ? Number(mbStockQty) : 100,
+        },
+        ...prev,
+      ]);
+    } catch (e) {
+      console.error(e);
+      setMbError("Ошибка сохранения");
+    } finally {
+      setMbSaving(false);
+    }
+  };
+
+  const handleDeleteMisteryBox = async (id: number) => {
+    if (!restaurantId) return;
+    if (!confirm("Удалить Mistery box?")) return;
+    try {
+      const res = await fetch(`/api/business/mistery-boxes/${id}?restaurantId=${restaurantId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        console.error("Ошибка при DELETE mistery-box:", res.status);
+        return;
+      }
+      setMisteryBoxes((prev) => prev.filter((i) => i.id !== id));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleToggleMisteryBoxActive = (id: number, currentIsActive: boolean | null) => {
+    if (!restaurantId) return;
+    const prev = currentIsActive ?? true;
+    const next = !prev;
+
+    setMisteryBoxes((prevItems) => prevItems.map((it) => (it.id === id ? { ...it, is_active: next } : it)));
+
+    fetch(`/api/business/mistery-boxes/${id}?restaurantId=${restaurantId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isActive: next }),
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error(String(res.status));
+      })
+      .catch(() => {
+        setMisteryBoxes((prevItems) => prevItems.map((it) => (it.id === id ? { ...it, is_active: prev } : it)));
+      });
+  };
+
+  const handleUpdateMisteryBoxStock = async (id: number, nextStockQty: number, prevStockQty: number) => {
+    if (!restaurantId) return;
+    if (!Number.isFinite(nextStockQty) || nextStockQty < 0) return;
+    try {
+      const res = await fetch(`/api/business/mistery-boxes/${id}?restaurantId=${restaurantId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ stockQty: Math.floor(nextStockQty) }),
+      });
+      if (!res.ok) {
+        setMisteryBoxes((prevItems) => prevItems.map((it) => (it.id === id ? { ...it, stock_qty: prevStockQty } : it)));
+      }
+    } catch {
+      setMisteryBoxes((prevItems) => prevItems.map((it) => (it.id === id ? { ...it, stock_qty: prevStockQty } : it)));
     }
   };
 
@@ -402,51 +612,6 @@ export default function BusinessPage() {
       setItems((prevItems) =>
         prevItems.map((it) =>
           it.id === id ? { ...it, is_active: prev } : it
-        )
-      );
-    }
-  };
-
-  // === Вкл/выкл анонимности бренда ===
-  const handleToggleBrandAnonymous = async (
-    id: number,
-    currentIsAnon: boolean
-  ) => {
-    if (!restaurantId) return;
-    const prev = currentIsAnon;
-    const next = !prev;
-
-    // оптимистично меняем
-    setItems((prevItems) =>
-      prevItems.map((it) =>
-        it.id === id ? { ...it, is_brand_anonymous: next } : it
-      )
-    );
-
-    try {
-      const res = await fetch(
-        `/api/business/menu-items/${id}?restaurantId=${restaurantId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ isBrandAnonymous: next }),
-        }
-      );
-
-      if (!res.ok) {
-        console.error("Ошибка при PATCH isBrandAnonymous:", res.status);
-        // откат
-        setItems((prevItems) =>
-          prevItems.map((it) =>
-            it.id === id ? { ...it, is_brand_anonymous: prev } : it
-          )
-        );
-      }
-    } catch (e) {
-      console.error("Сетевая ошибка при PATCH isBrandAnonymous:", e);
-      setItems((prevItems) =>
-        prevItems.map((it) =>
-          it.id === id ? { ...it, is_brand_anonymous: prev } : it
         )
       );
     }
@@ -528,6 +693,7 @@ export default function BusinessPage() {
                   setRestaurantName(null);
                   setStep("login");
                   setItems([]);
+                  setMisteryBoxes([]);
                 }}
                 className="rounded-full border border-slate-200 px-3 py-1 text-[11px] font-medium text-slate-700 hover:border-slate-300 hover:text-slate-900"
               >
@@ -667,15 +833,6 @@ export default function BusinessPage() {
                     )}
                   </label>
 
-                  <label className="inline-flex items-center gap-2 text-xs text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={isBrandAnonymous}
-                      onChange={(e) => setIsBrandAnonymous(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-brand focus:ring-brand"
-                    />
-                    Показать блюдо как анонимное (без бренда заведения)
-                  </label>
                 </div>
 
                 <div className="flex flex-col gap-3">
@@ -802,6 +959,229 @@ export default function BusinessPage() {
               </div>
             </section>
 
+            {/* Mistery box */}
+            <section className="rounded-3xl bg-white p-5 shadow-vilka-soft">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-slate-900">Mistery box</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Сюрприз-бокс от вашего ресторана. Будет отображаться в каталоге как отдельная категория.
+                  </p>
+                </div>
+                {isLoadingMisteryBoxes && <span className="text-xs text-slate-500">Обновляем…</span>}
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2">
+                <div className="flex flex-col gap-3">
+                  <label className="text-xs text-slate-600">
+                    Название Mistery box
+                    <input
+                      type="text"
+                      value={mbName}
+                      onChange={(e) => setMbName(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                    />
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    Описание (необязательно)
+                    <textarea
+                      value={mbComposition}
+                      onChange={(e) => setMbComposition(e.target.value)}
+                      rows={3}
+                      className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex flex-col gap-3">
+                  <label className="text-xs text-slate-600">
+                    Цена, ₽
+                    <input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={mbPrice}
+                      onChange={(e) => setMbPrice(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                    />
+                  </label>
+                  <label className="text-xs text-slate-600">
+                    Остаток, шт
+                    <input
+                      type="number"
+                      min={0}
+                      step="1"
+                      value={mbStockQty}
+                      onChange={(e) => setMbStockQty(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-brand"
+                    />
+                  </label>
+
+                  <div className="text-xs text-slate-600">
+                    <div className="mb-1">Фото</div>
+                    {!mbImagePreviewUrl ? (
+                      <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-surface-soft px-4 py-6 transition-colors hover:border-brand hover:bg-slate-50">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white shadow-vilka-soft">
+                          <Upload className="h-5 w-5 text-slate-600" />
+                        </div>
+                        <div className="text-center">
+                          <span className="font-medium text-slate-700">Нажмите для загрузки</span>
+                          <span className="block text-[11px] text-slate-500">или перетащите изображение</span>
+                        </div>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => setMbImageFile(e.target.files?.[0] ?? null)}
+                          className="hidden"
+                        />
+                      </label>
+                    ) : (
+                      <div className="relative rounded-2xl border border-slate-200 bg-white p-3">
+                        <div className="flex items-center gap-3">
+                          <div className="relative h-20 w-20 overflow-hidden rounded-2xl bg-surface-soft">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img src={mbImagePreviewUrl} alt="Предпросмотр" className="h-full w-full object-cover" />
+                          </div>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 text-xs text-slate-700">
+                              <ImageIcon className="h-4 w-4 text-slate-500" />
+                              <span className="truncate font-medium">{mbImageFile?.name ?? "Изображение"}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMbImageFile(null);
+                                setMbImagePreviewUrl(null);
+                              }}
+                              className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                            >
+                              <X className="h-3 w-3" />
+                              Убрать фото
+                            </button>
+                          </div>
+                        </div>
+                        <label className="absolute bottom-3 right-3">
+                          <span className="vilka-btn-primary flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-semibold">
+                            <Upload className="h-3 w-3" />
+                            Заменить
+                          </span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => setMbImageFile(e.target.files?.[0] ?? null)}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={handleCreateMisteryBox}
+                      disabled={mbSaving}
+                      className="vilka-btn-primary w-full rounded-2xl px-4 py-2 text-sm font-semibold disabled:opacity-60"
+                    >
+                      {mbSaving ? "Сохраняем..." : "Добавить Mistery box"}
+                    </button>
+                    {mbError && <p className="mt-2 text-sm text-red-500">{mbError}</p>}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5">
+                {misteryBoxes.length === 0 ? (
+                  <p className="text-sm text-slate-600">Пока нет ни одного Mistery box.</p>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {misteryBoxes.map((item) => {
+                      const active = item.is_active ?? true;
+                      return (
+                        <article
+                          key={item.id}
+                          className="flex gap-3 rounded-3xl border border-surface-soft bg-surface-soft p-3"
+                        >
+                          {item.image_url && (
+                            <div className="h-20 w-20 overflow-hidden rounded-2xl bg-white">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={item.image_url} alt={item.name} className="h-full w-full object-cover" />
+                            </div>
+                          )}
+
+                          <div className="flex flex-1 flex-col gap-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <h3 className="text-sm font-semibold text-slate-900">{item.name}</h3>
+                                <p className="mt-0.5 line-clamp-2 text-xs text-slate-600">{item.composition}</p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteMisteryBox(item.id)}
+                                className="rounded-full bg-white p-1 text-slate-500 hover:text-red-500"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+
+                            <div className="mt-1 flex items-end justify-between gap-2">
+                              <span className="text-sm font-semibold text-slate-900">{item.price} ₽</span>
+                            </div>
+
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                              <span className="text-[11px] text-slate-600">Остаток</span>
+                              <input
+                                type="number"
+                                min={0}
+                                step="1"
+                                value={Number.isFinite(item.stock_qty) ? item.stock_qty : 0}
+                                onFocus={() => {
+                                  mbStockEditPrevRef.current[item.id] = Number.isFinite(item.stock_qty) ? item.stock_qty : 0;
+                                }}
+                                onChange={(e) => {
+                                  const next = Math.max(0, Math.floor(Number(e.target.value || 0)));
+                                  setMisteryBoxes((prevItems) =>
+                                    prevItems.map((it) => (it.id === item.id ? { ...it, stock_qty: next } : it))
+                                  );
+                                }}
+                                onBlur={(e) => {
+                                  const next = Math.max(0, Math.floor(Number(e.target.value || 0)));
+                                  const prev = mbStockEditPrevRef.current[item.id];
+                                  if (typeof prev === "number" && next !== prev) {
+                                    handleUpdateMisteryBoxStock(item.id, next, prev);
+                                  }
+                                }}
+                                className="w-24 rounded-2xl border border-slate-200 bg-white px-3 py-1.5 text-right text-xs outline-none focus:border-brand"
+                              />
+                            </div>
+
+                            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMisteryBoxActive(item.id, item.is_active)}
+                                className={[
+                                  "inline-flex items-center gap-2 rounded-full border px-2.5 py-1",
+                                  active ? "border-emerald-300 bg-emerald-50 text-slate-900" : "border-slate-200 bg-white text-slate-500",
+                                ].join(" ")}
+                              >
+                                <span
+                                  className={[
+                                    "h-3 w-3 rounded-full border",
+                                    active ? "border-emerald-500 bg-emerald-500" : "border-slate-300 bg-white",
+                                  ].join(" ")}
+                                />
+                                <span>{active ? "В каталоге" : "Выключено"}</span>
+                              </button>
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </section>
+
             {/* список блюд */}
             <section className="rounded-3xl bg-white p-5 shadow-vilka-soft">
               <div className="mb-3 flex items-center justify-between">
@@ -857,11 +1237,6 @@ export default function BusinessPage() {
                               <p className="mt-0.5 text-[10px] text-slate-500">
                                 {getCategoryNameById(item.ref_category_id)}
                               </p>
-                              {item.is_brand_anonymous && (
-                                <span className="mt-1 inline-flex rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold text-white">
-                                  Анонимное блюдо
-                                </span>
-                              )}
                             </div>
 
                             <button
@@ -948,36 +1323,6 @@ export default function BusinessPage() {
                               </span>
                             </button>
 
-                            {/* Анонимность */}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleToggleBrandAnonymous(
-                                  item.id,
-                                  item.is_brand_anonymous
-                                )
-                              }
-                              className={[
-                                "inline-flex items-center gap-2 rounded-full border px-2.5 py-1",
-                                item.is_brand_anonymous
-                                  ? "border-slate-900 bg-slate-900 text-white"
-                                  : "border-slate-200 bg-white text-slate-600",
-                              ].join(" ")}
-                            >
-                              <span
-                                className={[
-                                  "h-3 w-3 rounded-full border",
-                                  item.is_brand_anonymous
-                                    ? "border-white bg-white/90"
-                                    : "border-slate-300 bg-white",
-                                ].join(" ")}
-                              />
-                              <span>
-                                {item.is_brand_anonymous
-                                  ? "Анонимно"
-                                  : "С брендом"}
-                              </span>
-                            </button>
                           </div>
                         </div>
                       </article>

@@ -15,7 +15,7 @@ function getIdFromUrl(urlStr: string): number | null {
   }
 }
 
-// 🔧 Обновление товара (isActive / isBrandAnonymous)
+// 🔧 Обновление товара (isActive / stockQty)
 export async function PATCH(req: NextRequest) {
   try {
     const menuItemId = getIdFromUrl(req.url);
@@ -39,23 +39,20 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json();
     const {
       isActive,
-      isBrandAnonymous,
       stockQty,
     } = body as {
       isActive?: boolean;
-      isBrandAnonymous?: boolean;
       stockQty?: number;
     };
 
     if (
       typeof isActive !== "boolean" &&
-      typeof isBrandAnonymous !== "boolean" &&
       typeof stockQty !== "number"
     ) {
       return NextResponse.json(
         {
           error:
-            "Нужно передать хотя бы одно поле: isActive, isBrandAnonymous или stockQty",
+            "Нужно передать хотя бы одно поле: isActive или stockQty",
         },
         { status: 400 }
       );
@@ -68,11 +65,6 @@ export async function PATCH(req: NextRequest) {
     if (typeof isActive === "boolean") {
       setParts.push(`is_active = $${idx++}`);
       values.push(isActive);
-    }
-
-    if (typeof isBrandAnonymous === "boolean") {
-      setParts.push(`is_brand_anonymous = $${idx++}`);
-      values.push(isBrandAnonymous);
     }
 
     if (typeof stockQty === "number") {

@@ -401,6 +401,7 @@ export default function CheckoutModal({
     fetch("/api/delivery/yandex/quote", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ addressId: draft.addressId }),
       signal: controller.signal,
     })

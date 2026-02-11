@@ -108,6 +108,16 @@ const BrandedOfferCard = ({
             {itemName}
           </div>
 
+          {/* Заведение */}
+          {brand ? (
+            <div
+              className="mt-1 line-clamp-1 text-[12px] font-semibold text-slate-500"
+              title={brand}
+            >
+              {brand}
+            </div>
+          ) : null}
+
           {/* Спецификация: вес */}
           {subtitle && (
             <div className="mt-1.5 text-sm font-semibold" style={{ color: "rgb(166, 166, 166)" }}>

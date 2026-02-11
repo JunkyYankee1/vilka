@@ -12,7 +12,6 @@ type CatalogRow = {
   price: number;
   discount_percent: number | null;
   image_url: string | null;
-  is_brand_anonymous: boolean;
   stock_qty: number;
   ref_category_id: number;
   category_level: number;
@@ -38,7 +37,6 @@ export async function getCatalogData(): Promise<CatalogData> {
       mi.price              AS price,
       mi.discount_percent   AS discount_percent,
       mi.image_url          AS image_url,
-      mi.is_brand_anonymous AS is_brand_anonymous,
       mi.stock_qty          AS stock_qty,
       c.id                  AS ref_category_id,
       c.level               AS category_level,
@@ -82,6 +80,7 @@ export async function getCatalogData(): Promise<CatalogData> {
     LEFT JOIN ref_dish_categories p2
       ON p2.id = p1.parent_id
     WHERE mi.is_active = TRUE
+      AND mi.is_brand_anonymous = FALSE
       AND c.is_active = TRUE
       AND c.level BETWEEN 1 AND 3
     ORDER BY
@@ -146,13 +145,14 @@ export async function getCatalogData(): Promise<CatalogData> {
       ? row.level2_name ?? "Прочее"
       : level1Name;
 
-    const baseItemId = String(row.ref_category_id);
-    const baseItemName =
-      (hasLevel3
-        ? row.level3_name
-        : hasLevel2
-        ? row.level2_name
-        : row.level1_name) ?? row.menu_item_name;
+    const isMisteryBox = level1Code === "mistery-box";
+
+    // Mistery box is a special entity: each box should be its own catalog item
+    // (not grouped by ref_category_id), so it can have its own name/price.
+    const baseItemId = isMisteryBox ? `mistery-box:${row.menu_item_id}` : String(row.ref_category_id);
+    const baseItemName = isMisteryBox
+      ? row.menu_item_name
+      : ((hasLevel3 ? row.level3_name : hasLevel2 ? row.level2_name : row.level1_name) ?? row.menu_item_name);
 
     if (!categoryMap.has(categoryId)) {
       categoryMap.set(categoryId, {
@@ -175,7 +175,7 @@ export async function getCatalogData(): Promise<CatalogData> {
         name: baseItemName,
         description:
           row.composition ??
-          `Блюдо категории «${subcategoryName.toLowerCase()}»`,
+          (isMisteryBox ? "Сюрприз-бокс от ресторана" : `Блюдо категории «${subcategoryName.toLowerCase()}»`),
         categoryId,
         subcategoryId,
       });
@@ -193,8 +193,10 @@ export async function getCatalogData(): Promise<CatalogData> {
       id: String(row.menu_item_id),
       baseItemId,
       restaurantId: row.restaurant_id,
-      isAnonymous: row.is_brand_anonymous,
-      brand: row.is_brand_anonymous ? undefined : row.restaurant_name,
+      // Backward-compatible: do not rely on menu_items.item_kind column existing.
+      // We detect Mistery box by the top-level category code.
+      kind: level1Code === "mistery-box" ? "mistery_box" : "menu_item",
+      brand: row.restaurant_name,
       price: finalPrice,
       oldPrice,
       tag: undefined,

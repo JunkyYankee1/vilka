@@ -11,7 +11,6 @@ import AuthModal from "@/components/AuthModal";
 import AddressModal from "@/components/AddressModal";
 import AIAssistantModal from "@/components/AIAssistantModal";
 import CheckoutModal from "@/components/checkout/CheckoutModal";
-import AnonymousOfferCard from "@/components/AnonymousOfferCard";
 import BrandedOfferCard from "@/components/BrandedOfferCard";
 import { MenuOptionButton } from "@/components/MenuOptionButton";
 import { CartProvider, useCart } from "@/modules/cart/cartContext";
@@ -538,98 +537,53 @@ function CatalogUI({ catalog }: CatalogPageClientProps) {
   };
 
   const renderOffersBlock = (baseItem: (typeof baseItems)[number], offers: typeof offersForItem) => {
-    const anon = offers.find((o) => o.isAnonymous);
-    const branded = offers.filter((o) => !o.isAnonymous);
-
     return (
-      <>
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-900">Анонимные предложения</span>
-            <span className="text-[11px] text-slate-500">Подберём самый дешёвый и ближайший вариант</span>
-          </div>
-
-          {anon ? (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              <div
-                className={[
-                  "transform-gpu cursor-pointer select-none transition-transform duration-100 ease-out hover:-translate-y-0.5",
-                  "[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95",
-                  pressedCardId === anon.id ? "scale-95" : "",
-                ].join(" ")}
-                onPointerDownCapture={() => setPressedCardId(anon.id)}
-                onPointerUpCapture={() => setPressedCardId((prev) => (prev === anon.id ? null : prev))}
-                onPointerCancelCapture={() => setPressedCardId((prev) => (prev === anon.id ? null : prev))}
-                onPointerLeave={() => setPressedCardId((prev) => (prev === anon.id ? null : prev))}
-              >
-                <AnonymousOfferCard
-                  name={anon.menuItemName}
-                  price={anon.price}
-                  oldPrice={anon.oldPrice}
-                  tag={anon.tag}
-                  subtitle={baseItem.description}
-                  imageUrl={anon.imageUrl ?? undefined}
-                  quantity={quantities[anon.id] ?? 0}
-                  isSoldOut={((offerStocks[anon.id] ?? anon.stock) ?? 0) <= 0}
-                  onAdd={() => handleAddToCart(anon.id)}
-                  onRemove={() => remove(anon.id)}
-                />
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
-              Для этой позиции пока нет анонимных предложений.
-            </div>
-          )}
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <span className="text-sm font-semibold text-slate-900">Предложения</span>
+          <span className="text-[11px] text-slate-500">Из заведений рядом</span>
         </div>
 
-        <div className="flex flex-col gap-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-slate-900">Из заведений рядом</span>
-            <span className="text-[11px] text-slate-500">Заведения, которые показывают свой бренд</span>
+        {offers.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
+            Пока нет предложений для этой позиции.
           </div>
-
-          {branded.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-4 text-xs text-slate-600">
-              Пока нет брендированных предложений для этой позиции.
-            </div>
-          ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {branded.map((offer) => {
-                const isPressed = pressedCardId === offer.id;
-                return (
-                  <div
-                    key={offer.id}
-                    className={[
-                      "transform-gpu cursor-pointer select-none transition-transform duration-100 ease-out hover:-translate-y-0.5",
-                      "[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95",
-                      isPressed ? "scale-95" : "",
-                    ].join(" ")}
-                    onPointerDownCapture={() => setPressedCardId(offer.id)}
-                    onPointerUpCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                    onPointerCancelCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                    onPointerLeave={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                  >
-                    <BrandedOfferCard
-                      itemName={offer.menuItemName}
-                      brand={offer.brand}
-                      price={offer.price}
-                      oldPrice={offer.oldPrice}
-                      tag={offer.tag}
-                      subtitle={baseItem.description}
-                      imageUrl={offer.imageUrl ?? undefined}
-                      quantity={quantities[offer.id] ?? 0}
-                      isSoldOut={((offerStocks[offer.id] ?? offer.stock) ?? 0) <= 0}
-                      onAdd={() => handleAddToCart(offer.id)}
-                      onRemove={() => remove(offer.id)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {offers.map((offer) => {
+              const isPressed = pressedCardId === offer.id;
+              return (
+                <div
+                  key={offer.id}
+                  className={[
+                    "transform-gpu cursor-pointer select-none transition-transform duration-100 ease-out hover:-translate-y-0.5",
+                    "[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95",
+                    isPressed ? "scale-95" : "",
+                  ].join(" ")}
+                  onPointerDownCapture={() => setPressedCardId(offer.id)}
+                  onPointerUpCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
+                  onPointerCancelCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
+                  onPointerLeave={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
+                >
+                  <BrandedOfferCard
+                    itemName={offer.menuItemName}
+                    brand={offer.brand}
+                    price={offer.price}
+                    oldPrice={offer.oldPrice}
+                    tag={offer.tag}
+                    subtitle={baseItem.description}
+                    imageUrl={offer.imageUrl ?? undefined}
+                    quantity={quantities[offer.id] ?? 0}
+                    isSoldOut={((offerStocks[offer.id] ?? offer.stock) ?? 0) <= 0}
+                    onAdd={() => handleAddToCart(offer.id)}
+                    onRemove={() => remove(offer.id)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -1197,97 +1151,46 @@ function CatalogUI({ catalog }: CatalogPageClientProps) {
                     <div className="mt-2 text-sm text-slate-600">Попробуйте написать иначе (можно с опечатками или на другой раскладке).</div>
                   </div>
                 ) : (
-                  <div className="flex flex-col gap-10">
-                    {searchResults.some((r) => r.offer.isAnonymous) ? (
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-slate-900">Анонимные предложения</span>
-                          <span className="text-[11px] text-slate-500">Подберём самый дешёвый и ближайший вариант</span>
-                        </div>
-                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                          {searchResults
-                            .filter((r) => r.offer.isAnonymous)
-                            .map((r) => {
-                              const offer = r.offer;
-                              const isPressed = pressedCardId === offer.id;
-                              const subtitle = baseItemById.get(offer.baseItemId)?.description ?? "";
-                              return (
-                                <div
-                                  key={offer.id}
-                                  className={[
-                                    "transform-gpu cursor-pointer select-none transition-transform duration-100 ease-out hover:-translate-y-0.5",
-                                    "[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95",
-                                    isPressed ? "scale-95" : "",
-                                  ].join(" ")}
-                                  onPointerDownCapture={() => setPressedCardId(offer.id)}
-                                  onPointerUpCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                                  onPointerCancelCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                                  onPointerLeave={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                                >
-                                  <AnonymousOfferCard
-                                    name={offer.menuItemName}
-                                    price={offer.price}
-                                    oldPrice={offer.oldPrice}
-                                    tag={offer.tag}
-                                    subtitle={subtitle}
-                                    imageUrl={offer.imageUrl ?? undefined}
-                                    quantity={quantities[offer.id] ?? 0}
-                                    isSoldOut={((offerStocks[offer.id] ?? offer.stock) ?? 0) <= 0}
-                                    onAdd={() => handleAddToCart(offer.id)}
-                                    onRemove={() => remove(offer.id)}
-                                  />
-                                </div>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {searchResults.some((r) => !r.offer.isAnonymous) ? (
-                      <div className="flex flex-col gap-3">
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm font-semibold text-slate-900">Обычные предложения</span>
-                          <span className="text-[11px] text-slate-500">Заведения, которые показывают свой бренд</span>
-                        </div>
-                        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                          {searchResults
-                            .filter((r) => !r.offer.isAnonymous)
-                            .map((r) => {
-                              const offer = r.offer;
-                              const isPressed = pressedCardId === offer.id;
-                              const subtitle = baseItemById.get(offer.baseItemId)?.description ?? "";
-                              return (
-                                <div
-                                  key={offer.id}
-                                  className={[
-                                    "transform-gpu cursor-pointer select-none transition-transform duration-100 ease-out hover:-translate-y-0.5",
-                                    "[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95",
-                                    isPressed ? "scale-95" : "",
-                                  ].join(" ")}
-                                  onPointerDownCapture={() => setPressedCardId(offer.id)}
-                                  onPointerUpCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                                  onPointerCancelCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                                  onPointerLeave={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
-                                >
-                                  <BrandedOfferCard
-                                    itemName={offer.menuItemName}
-                                    brand={offer.brand}
-                                    price={offer.price}
-                                    oldPrice={offer.oldPrice}
-                                    tag={offer.tag}
-                                    subtitle={subtitle}
-                                    imageUrl={offer.imageUrl ?? undefined}
-                                    quantity={quantities[offer.id] ?? 0}
-                                    isSoldOut={((offerStocks[offer.id] ?? offer.stock) ?? 0) <= 0}
-                                    onAdd={() => handleAddToCart(offer.id)}
-                                    onRemove={() => remove(offer.id)}
-                                  />
-                                </div>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    ) : null}
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold text-slate-900">Результаты поиска</span>
+                      <span className="text-[11px] text-slate-500">{searchResults.length} шт.</span>
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                      {searchResults.map((r) => {
+                        const offer = r.offer;
+                        const isPressed = pressedCardId === offer.id;
+                        const subtitle = baseItemById.get(offer.baseItemId)?.description ?? "";
+                        return (
+                          <div
+                            key={offer.id}
+                            className={[
+                              "transform-gpu cursor-pointer select-none transition-transform duration-100 ease-out hover:-translate-y-0.5",
+                              "[&_button]:transform-gpu [&_button]:transition-transform [&_button]:duration-100 [&_button]:ease-out [&_button]:active:scale-95",
+                              isPressed ? "scale-95" : "",
+                            ].join(" ")}
+                            onPointerDownCapture={() => setPressedCardId(offer.id)}
+                            onPointerUpCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
+                            onPointerCancelCapture={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
+                            onPointerLeave={() => setPressedCardId((prev) => (prev === offer.id ? null : prev))}
+                          >
+                            <BrandedOfferCard
+                              itemName={offer.menuItemName}
+                              brand={offer.brand}
+                              price={offer.price}
+                              oldPrice={offer.oldPrice}
+                              tag={offer.tag}
+                              subtitle={subtitle}
+                              imageUrl={offer.imageUrl ?? undefined}
+                              quantity={quantities[offer.id] ?? 0}
+                              isSoldOut={((offerStocks[offer.id] ?? offer.stock) ?? 0) <= 0}
+                              onAdd={() => handleAddToCart(offer.id)}
+                              onRemove={() => remove(offer.id)}
+                            />
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 )
               ) : isOverviewMode ? null : itemsForSubcategory.length > 0 ? (

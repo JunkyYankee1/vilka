@@ -24,8 +24,8 @@ type DbAddress = {
 
 // Simple in-memory cache to avoid list "blinking" and extra refetches.
 // Keyed by user phone (or "guest").
-const ADDRESSES_CACHE_TTL_MS = 60_000;
-const addressesCache: Record<string, { at: number; items: DbAddress[] }> = {};
+// We also track lastFetchOpenId so we fetch at most once per drawer open.
+const addressesCache: Record<string, { items: DbAddress[]; lastFetchOpenId: number }> = {};
 
 type ProfileDrawerProps = {
   isOpen: boolean;
@@ -151,11 +151,13 @@ function AddressesScreen({
   onSelectAddress,
   onDone,
   cacheKey,
+  openId,
 }: {
   currentAddressId: number | null;
   onSelectAddress?: ProfileDrawerProps["onSelectAddress"];
   onDone: () => void;
   cacheKey: string;
+  openId: number;
 }) {
   const [items, setItems] = useState<DbAddress[]>([]);
   const [loading, setLoading] = useState(false);
@@ -165,23 +167,23 @@ function AddressesScreen({
   const setItemsAndCache = (next: DbAddress[] | ((prev: DbAddress[]) => DbAddress[])) => {
     setItems((prev) => {
       const computed = typeof next === "function" ? (next as (p: DbAddress[]) => DbAddress[])(prev) : next;
-      addressesCache[cacheKey] = { at: Date.now(), items: computed };
+      addressesCache[cacheKey] = { items: computed, lastFetchOpenId: openId };
       return computed;
     });
   };
 
-  const refresh = async () => {
+  const refresh = async (opts?: { signal?: AbortSignal }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/addresses");
+      const res = await fetch("/api/addresses", { signal: opts?.signal });
       if (!res.ok) {
         setError(res.status === 401 ? "Нужно войти в аккаунт" : "Не удалось загрузить адреса");
         return;
       }
       const data = (await res.json().catch(() => ({}))) as { addresses?: DbAddress[] };
       const nextItems = Array.isArray(data.addresses) ? data.addresses : [];
-      addressesCache[cacheKey] = { at: Date.now(), items: nextItems };
+      addressesCache[cacheKey] = { items: nextItems, lastFetchOpenId: openId };
       setItems(nextItems);
     } catch {
       setError("Не удалось загрузить адреса");
@@ -192,13 +194,17 @@ function AddressesScreen({
 
   useEffect(() => {
     const cached = addressesCache[cacheKey];
-    if (cached?.items?.length) {
+    if (cached) {
       setItems(cached.items);
-      return;
+      // Fetch addresses only once per drawer open.
+      if (cached.lastFetchOpenId === openId) return;
     }
-    void refresh();
+
+    const controller = new AbortController();
+    void refresh({ signal: controller.signal });
+    return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cacheKey]);
+  }, [cacheKey, openId]);
 
   const formatSubtitle = (a: DbAddress) => {
     const parts: string[] = [];
@@ -220,7 +226,7 @@ function AddressesScreen({
             <div className="text-sm font-semibold text-slate-500">{error}</div>
             <button
               type="button"
-              onClick={refresh}
+              onClick={() => refresh()}
               className="mt-4 rounded-full bg-slate-100 px-5 py-3 text-sm font-semibold text-slate-800 hover:bg-slate-200"
             >
               Повторить
@@ -328,7 +334,15 @@ function AddressesScreen({
       <div className="shrink-0 px-6 pb-7 sm:px-7">
         <button
           type="button"
-          onClick={() => setIsAddressModalOpen(true)}
+          onPointerDown={(e) => {
+            // Prevent "ghost click" / delayed synthetic click from landing on the newly opened overlay.
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsAddressModalOpen(true);
+          }}
           className="vilka-btn-primary h-14 w-full rounded-full px-6 text-base font-semibold"
         >
           Новый адрес
@@ -579,6 +593,7 @@ function SettingsNameScreen({
 
 export default function ProfileDrawer({ isOpen, onClose, user, currentAddressId, onSelectAddress }: ProfileDrawerProps) {
   const [mounted, setMounted] = useState(false);
+  const [openId, setOpenId] = useState(0);
 
   // держим компонент в DOM, пока проигрывается анимация закрытия
   const [shouldRender, setShouldRender] = useState(false);
@@ -622,6 +637,7 @@ export default function ProfileDrawer({ isOpen, onClose, user, currentAddressId,
       setShouldRender(true);
       setClosing(false);
       setScreenStack(["main"]); // при каждом открытии возвращаемся на главный экран
+      setOpenId((v) => v + 1);
       return;
     }
 
@@ -853,6 +869,7 @@ export default function ProfileDrawer({ isOpen, onClose, user, currentAddressId,
           onSelectAddress={onSelectAddress}
           onDone={popScreen}
           cacheKey={user?.phone ?? "guest"}
+          openId={openId}
         />
       );
     if (screen === "support") return <SupportScreen />;
