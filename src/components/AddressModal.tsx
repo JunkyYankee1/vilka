@@ -29,6 +29,7 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
   const [showStreetSuggestions, setShowStreetSuggestions] = useState(false);
 
   const [coords, setCoords] = useState<[number, number]>([55.7558, 37.6173]); // Москва по умолчанию
+  const [zoom, setZoom] = useState<number>(12);
 
   const cityInputRef = useRef<HTMLInputElement | null>(null);
   const streetInputRef = useRef<HTMLInputElement | null>(null);
@@ -58,6 +59,7 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
     setShowCitySuggestions(false);
     setShowStreetSuggestions(false);
     setCoords([55.7558, 37.6173]);
+    setZoom(12);
 
     geoRequestedRef.current = false;
 
@@ -72,6 +74,27 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
 
     setTimeout(() => cityInputRef.current?.focus(), 0);
   }, [isOpen]);
+
+  const isValidCoords = (v: unknown): v is [number, number] => {
+    if (!Array.isArray(v) || v.length !== 2) return false;
+    const a = Number(v[0]);
+    const b = Number(v[1]);
+    return Number.isFinite(a) && Number.isFinite(b);
+  };
+
+  const applyCenter = useCallback(
+    (center: [number, number], nextZoom?: number) => {
+      setCoords(center);
+      if (typeof nextZoom === "number" && Number.isFinite(nextZoom)) setZoom(nextZoom);
+      if (mapRef.current) {
+        mapRef.current.setCenter(
+          center,
+          typeof nextZoom === "number" && Number.isFinite(nextZoom) ? nextZoom : zoom
+        );
+      }
+    },
+    [zoom]
+  );
 
   const hasHouseNumber = (address: string): boolean => {
     if (!address.trim()) return false;
@@ -175,16 +198,16 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
           .then((res: any) => {
             const first = res?.geoObjects?.get(0);
             if (!first) return;
-            const position = first.geometry.getCoordinates() as [number, number];
-            setCoords(position);
-            if (mapRef.current) mapRef.current.setCenter(position, 11);
+            const position = first.geometry.getCoordinates() as unknown;
+            if (!isValidCoords(position)) return;
+            applyCenter(position, 11);
           })
           .catch(() => {});
       }
 
       setTimeout(() => streetInputRef.current?.focus(), 0);
     },
-    [ymaps]
+    [applyCenter, ymaps]
   );
 
   // --------- Suggest (улица) ----------
@@ -260,9 +283,9 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
         .then((res: any) => {
           const first = res?.geoObjects?.get(0);
           if (!first) return;
-          const position = first.geometry.getCoordinates() as [number, number];
-          setCoords(position);
-          if (mapRef.current) mapRef.current.setCenter(position, 17);
+          const position = first.geometry.getCoordinates() as unknown;
+          if (!isValidCoords(position)) return;
+          applyCenter(position, 17);
         })
         .catch(() => {})
         .finally(() => {
@@ -271,7 +294,7 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
           }, 100);
         });
     },
-    [city, ymaps]
+    [applyCenter, city, ymaps]
   );
 
   // --------- Reverse geocode (coords -> city/street) ----------
@@ -358,8 +381,8 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
                 (pos) => {
                   const next: [number, number] = [pos.coords.latitude, pos.coords.longitude];
                   setGeoStatus("granted");
-                  setCoords(next);
-                  if (mapRef.current) mapRef.current.setCenter(next, 16);
+                  if (!isValidCoords(next)) return;
+                  applyCenter(next, 16);
                   handleReverseGeocode(next);
                   if (geoWatchIdRef.current != null) {
                     navigator.geolocation.clearWatch(geoWatchIdRef.current);
@@ -385,8 +408,8 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
       (pos) => {
         const next: [number, number] = [pos.coords.latitude, pos.coords.longitude];
         setGeoStatus("granted");
-        setCoords(next);
-        if (mapRef.current) mapRef.current.setCenter(next, 16);
+        if (!isValidCoords(next)) return;
+        applyCenter(next, 16);
         handleReverseGeocode(next);
       },
       (err) => {
@@ -398,7 +421,7 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
-  }, [geoStatus, handleReverseGeocode]);
+  }, [applyCenter, geoStatus, handleReverseGeocode]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -409,14 +432,13 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
   const handleMapClick = useCallback(
     (event: any) => {
       if (!event) return;
-      const coordinates = event.get("coords") as [number, number];
-      if (!coordinates || coordinates.length !== 2) return;
+      const coordinates = event.get("coords") as unknown;
+      if (!isValidCoords(coordinates)) return;
 
-      setCoords(coordinates);
+      applyCenter(coordinates, 17);
       handleReverseGeocode(coordinates);
-      if (mapRef.current) mapRef.current.setCenter(coordinates, 17);
     },
-    [handleReverseGeocode]
+    [applyCenter, handleReverseGeocode]
   );
 
   // --------- Auto geocode when typing street (debounced) ----------
@@ -429,12 +451,12 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
       .then((res: any) => {
         const first = res?.geoObjects?.get(0);
         if (!first) return;
-        const position = first.geometry.getCoordinates() as [number, number];
-        setCoords(position);
-        if (mapRef.current) mapRef.current.setCenter(position, 15);
+        const position = first.geometry.getCoordinates() as unknown;
+        if (!isValidCoords(position)) return;
+        applyCenter(position, 15);
       })
       .catch(() => {});
-  }, [city, street, ymaps]);
+  }, [applyCenter, city, street, ymaps]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -454,13 +476,20 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
   }, [city, street, ymaps, isOpen, handleGeocode]);
 
   const handleSaveNewAddress = async () => {
-    const addressLine = street.trim().length > 0 ? `${street.trim()}, ${city.trim()}` : `${city.trim()}`;
+    // Keep a consistent format across the app: "City, Street, House"
+    const addressLine = city.trim() && street.trim() ? `${city.trim()}, ${street.trim()}` : `${city.trim() || street.trim()}`;
+
+    if (!isValidCoords(coords)) {
+      alert("Не удалось определить координаты адреса. Выберите точку на карте.");
+      return;
+    }
 
     try {
       const res = await fetch("/api/addresses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          label: addressLine,
           address_line: addressLine,
           city: city.trim(),
           latitude: coords[0],
@@ -528,8 +557,8 @@ function AddressModalContent({ isOpen, onClose, onSelectAddress }: AddressModalP
           instanceRef={(ref: any) => {
             mapRef.current = ref;
           }}
-          defaultState={{ center: coords, zoom: 12 }}
-          state={{ center: coords }}
+          defaultState={{ center: [55.7558, 37.6173], zoom: 12 }}
+          state={{ center: coords, zoom }}
           width="100%"
           height="100%"
           onClick={handleMapClick}
@@ -700,6 +729,8 @@ export default function AddressModal(props: AddressModalProps) {
   const { isOpen, onClose } = props;
 
   const [mounted, setMounted] = useState(false);
+  const openedAtRef = useRef<number>(0);
+  const ignoreNextOverlayClickRef = useRef<boolean>(false);
 
   // держим компонент в DOM, пока проигрывается анимация закрытия
   const [shouldRender, setShouldRender] = useState(false);
@@ -717,6 +748,8 @@ export default function AddressModal(props: AddressModalProps) {
       if (timerRef.current) window.clearTimeout(timerRef.current);
       setShouldRender(true);
       setClosing(false);
+      openedAtRef.current = Date.now();
+      ignoreNextOverlayClickRef.current = true;
       return;
     }
 
@@ -759,13 +792,30 @@ export default function AddressModal(props: AddressModalProps) {
   if (!mounted || !shouldRender) return null;
 
   const yandexApiKey = process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY || "";
+  const handleOverlayClick = () => {
+    // Guard against "ghost clicks" on touch devices:
+    // the tap that opens the modal may generate a delayed synthetic click that lands on the overlay,
+    // instantly closing the modal. We ignore the first overlay click after opening.
+    if (ignoreNextOverlayClickRef.current) {
+      ignoreNextOverlayClickRef.current = false;
+      return;
+    }
+    // Extra safety: some devices delay it noticeably.
+    if (Date.now() - openedAtRef.current < 1200) return;
+    onClose();
+  };
 
   return createPortal(
-    <div className="fixed inset-0 z-[100]">
+    <div
+      className="fixed inset-0 z-[1000]"
+      // Prevent clicks inside this portal from bubbling to parent portals (e.g. ProfileDrawer overlay),
+      // which could close the parent while user interacts with the map.
+      onClick={(e) => e.stopPropagation()}
+    >
       {/* overlay */}
       <div
         className={["profile-drawer-overlay absolute inset-0 bg-black/45", closing ? "closing" : ""].join(" ")}
-        onClick={onClose}
+        onClick={handleOverlayClick}
         aria-hidden="true"
       />
 
@@ -783,20 +833,20 @@ export default function AddressModal(props: AddressModalProps) {
         <div className="relative h-full overflow-hidden rounded-[40px] bg-white shadow-2xl">
           {/* внутренние отступы */}
           <div className="relative h-full p-5 sm:p-6">
-            {/* X */}
+            <YMaps query={yandexApiKey ? { apikey: yandexApiKey } : undefined}>
+              <AddressModalContent {...props} />
+            </YMaps>
+
+            {/* X (keep above Yandex Maps overlays) */}
             <button
               type="button"
               onClick={onClose}
-              className="absolute right-5 top-5 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200"
+              className="absolute right-5 top-5 z-[1000] flex h-10 w-10 items-center justify-center rounded-full bg-slate-100 text-slate-700 hover:bg-slate-200"
               aria-label="Закрыть"
               title="Закрыть"
             >
               <X className="h-5 w-5" />
             </button>
-
-            <YMaps query={yandexApiKey ? { apikey: yandexApiKey } : undefined}>
-              <AddressModalContent {...props} />
-            </YMaps>
           </div>
         </div>
       </div>

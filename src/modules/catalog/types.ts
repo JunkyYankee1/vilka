@@ -24,8 +24,8 @@ export type Offer = {
   id: OfferId;
   baseItemId: BaseItemId;
   restaurantId: number;
-  isAnonymous: boolean;
-  brand?: string;
+  kind: "menu_item" | "mistery_box";
+  brand: string;
   price: Money;
   oldPrice?: Money;
   tag?: string;

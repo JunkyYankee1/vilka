@@ -81,7 +81,8 @@ services:
     environment:
       NODE_ENV: development
       # строка подключения к Postgres из контейнера app
-      DATABASE_URL: postgresql://kasashka:kasashka_password@postgres:5432/kasashka_db
+      # NOTE: we use container_name for postgres, so the safest hostname is the container name.
+      DATABASE_URL: postgresql://kasashka:kasashka_password@kasashka_postgres:5432/kasashka_db
       # строка подключения к Redis из контейнера app
       REDIS_URL: redis://redis:6379
       NEXT_PUBLIC_API_BASE_URL: http://localhost
